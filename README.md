@@ -1,5 +1,7 @@
 # GY Mahjong
 
+[简体中文](README.zh-CN.md)
+
 An online Mahjong game using a client/server architecture. The first target is a single C++ authoritative server that supports about 200 concurrent players, a Web frontend styled after Tenhou, custom rules, and file-based replay/score export without persistent player accounts.
 
 ## Goals
