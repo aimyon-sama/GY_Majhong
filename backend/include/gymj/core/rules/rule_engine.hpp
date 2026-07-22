@@ -1,6 +1,17 @@
 #ifndef GYMJ_CORE_RULE_ENGINE_HPP
 #define GYMJ_CORE_RULE_ENGINE_HPP
 
-class RuleEngine{};
+namespace gymj::rule{
+
+class RuleEngine{
+public:
+    RuleEngine();
+
+private:
+};
+
+}
+
+
 
 #endif
