@@ -1,12 +1,19 @@
 add_library(gymj_core_rules STATIC
     rule_engine.cpp
+    game_engine.cpp
+    point_engine.cpp
 )
 
 add_library(gymj::core_rules ALIAS gymj_core_rules)
 
 target_include_directories(gymj_core_rules
     PUBLIC
-        ${PROJECT_SOURCE_DIR}/backend/include
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(gymj_core_rules
+    PUBLIC
+        gymj::common
 )
 
 target_compile_features(gymj_core_rules
@@ -17,4 +24,3 @@ target_compile_features(gymj_core_rules
 set_target_properties(gymj_core_rules PROPERTIES
     OUTPUT_NAME "gymj_core_rules"
 )
-
