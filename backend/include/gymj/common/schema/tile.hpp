@@ -30,6 +30,12 @@ struct Meld{
     std::uint8_t from_seat;
 };
 
+struct DiscardRecord{
+    Tile tile;
+    std::uint8_t from_seat;
+    bool from_kan;
+};
+
 inline std::string tile_to_string(Tile t){
     char type;
     switch(t.type){

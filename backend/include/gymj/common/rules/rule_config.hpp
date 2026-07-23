@@ -3,13 +3,13 @@
 
 namespace gymj::common{
 
-struct ScoreRuleConfig{
-    int tsumoPoint = 3;
-    int halfSameColorPoint = 8;
-    int sameColorPoint = 17;
-    int dashChickenPoint = 3;
-    int handChickenPoint = 1;
-    int kanPoint = 5;
+struct PointRuleConfig{
+    int tsumo_point = 3;
+    int half_same_color_point = 8;
+    int same_color_point = 17;
+    int dash_chicken_point = 3;
+    int hand_chicken_point = 1;
+    int kan_point = 5;
 };
 
 struct GameRuleConfig{
@@ -19,7 +19,7 @@ struct GameRuleConfig{
 
 struct RuleConfig{
     GameRuleConfig game;
-    ScoreRuleConfig score;
+    PointRuleConfig score;
 };
 
 }
