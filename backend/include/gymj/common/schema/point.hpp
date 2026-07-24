@@ -24,7 +24,7 @@ struct RoundResult{
     int discarder_seat = -1;// tsumo -> -1
     std::optional<Tile> win_tile;
     WinType win_type;
-    std::array<PlayerRoundState, 4> state;
+    std::array<PlayerTileState, 4> states;
 };
 
 struct PointDetail{
