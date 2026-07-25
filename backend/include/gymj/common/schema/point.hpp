@@ -9,29 +9,12 @@
 
 namespace gymj::common{
 
-enum class WinType{
-    NoWinner,
-    SimpleTsumo,
-    TsumoFromKan,
-    SimpleRon,
-    RonKanDiscard,
-    RonAddKan
-};
-
-struct RoundResult{
-    bool has_winner = 0; // 0 -> no winner
-    int winner_seat = -1; // no winner -> -1
-    int discarder_seat = -1;// tsumo -> -1
-    std::optional<Tile> win_tile;
-    WinType win_type;
-    std::array<PlayerTileState, 4> states;
-};
-
 struct PointDetail{
     int total_point = 0;
     int point_from_chicken = 0;
     int point_from_kan = 0;
     int point_from_agari = 0;
+    int point_from_tenpai = 0; // in no winner round
 };
 
 struct PointResult{

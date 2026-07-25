@@ -1,7 +1,6 @@
 add_library(gymj_core_rules STATIC
     rule_engine.cpp
     game_engine.cpp
-    point_engine.cpp
 )
 
 add_library(gymj::core_rules ALIAS gymj_core_rules)
