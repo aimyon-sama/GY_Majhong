@@ -11,11 +11,22 @@ namespace gymj::common{
 
 enum class WinType{
     NoWinner,
-    SimpleTsumo,
+    Ron,
+    Tsumo
+};
+
+enum class WinDetail{
+    Simple,
     TsumoFromKan,
-    SimpleRon,
     RonKanDiscard,
     RonAddKan
+};
+
+struct DashChicken {
+    Tile tile;
+    int discarded_by = -1;   // 第一张由谁打出
+    int claimed_by = -1;     // 没被碰/杠则为 -1
+    MeldType claim_type{};   // Pon / OpenKan
 };
 
 struct RoundResult{
@@ -24,16 +35,10 @@ struct RoundResult{
     int discarder_seat = -1;// tsumo -> -1
     std::optional<Tile> win_tile;
     WinType win_type;
+    WinDetail detail;
     std::array<PlayerTileState, 4> states;
-    DashChicken one_sou;
-    DashChicken eight_pin;
-};
-
-struct DashChicken {
-    std::optional<Tile> tile;
-    int discarded_by = -1;   // 第一张由谁打出
-    int claimed_by = -1;     // 没被碰/杠则为 -1
-    MeldType claim_type{};   // Pon / OpenKan
+    std::optional<DashChicken> one_sou;
+    std::optional<DashChicken> eight_pin;
 };
 
 }
