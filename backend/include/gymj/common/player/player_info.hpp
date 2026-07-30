@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <optional>
 
 #include <gymj/common/schema/tile.hpp>
 
@@ -16,6 +17,7 @@ struct PlayerTileState{
     std::vector<Tile> river;
     std::vector<Tile> hand;
     std::vector<Meld> melds;
+    std::optional<Tile> draw_buffer;
 };
 
 struct PlayerRoundState{

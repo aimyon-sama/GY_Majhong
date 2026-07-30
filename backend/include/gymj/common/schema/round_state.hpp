@@ -24,7 +24,7 @@ enum class WinDetail{
 
 struct DashChicken {
     Tile tile;
-    int discarded_by = -1;   // 第一张由谁打出
+    int discarded_by = -1;   // 由谁打出
     int claimed_by = -1;     // 没被碰/杠则为 -1
     MeldType claim_type{};   // Pon / OpenKan
 };
@@ -33,7 +33,7 @@ struct RoundResult{
     bool has_winner = 0; // 0 -> no winner
     int winner_seat = -1; // no winner -> -1
     int discarder_seat = -1;// tsumo -> -1
-    std::optional<Tile> win_tile;
+    Tile win_tile;
     WinType win_type;
     WinDetail detail;
     std::array<PlayerTileState, 4> states;
