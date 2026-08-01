@@ -96,77 +96,103 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
     return point_result;
 }
 
-int PointEngine::calculate_winner_point(const PlayerTileState& winner_state, const Tile& win_tile, const WinDetail& detail) const{
-    int point = 0;
-    if(is_half_same_color(winner_state, win_tile)){
-        point += config_.half_same_color_point;
-    } else if(is_same_color(winner_state, win_tile)){
-        point += config_.same_color_point;
-    } else {
-        point += config_.tsumo_point;
-    }
+int PointEngine::calculate_tile_point(const PlayerTileState& player_state, const WinDetail& detail) const{
+    int total_point = 0;
+    int half_same_color_cnt = half_same_color_count(player_state),
+        same_color_cnt = same_color_count(player_state);
     switch (detail){
         case WinDetail::RonAddKan:
         case WinDetail::RonKanDiscard:
         case WinDetail::TsumoFromKan:
-            point += config_.same_color_point;
+            same_color_cnt++;
             break;
         default:
             break;
     }
+    if((half_same_color_cnt == 0) && (same_color_cnt == 0)){
+        total_point = config_.tsumo_point;
+    } else {
+        total_point = config_.half_same_color_point * half_same_color_cnt + config_.same_color_point * same_color_cnt;
+    }
+    return total_point;
 }
 
-bool PointEngine::is_half_same_color(const PlayerTileState& winner_state, const Tile& win_tile) const{
-    std::array<int, 27> tile_count;
-    for(auto& tile : winner_state.hand){
-        tile_count[tile_index(tile)]++;
-    }
-    int pair_count = 0, meld_count = 0;
-    for(auto cnt : tile_count){
-        if(cnt == 2){
-            pair_count++;
-        } else if (cnt == 3) {
-            meld_count++;
-        }
-    }
-    tile_count[tile_index(win_tile)]++;
-    meld_count += winner_state.melds.size();
-    return (pair_count == 1) && (meld_count == 4);
-}
-
-bool PointEngine::is_same_color(const PlayerTileState& winner_state, const Tile& win_tile) const{
-    auto all_same_color = [&]() -> bool {
-        auto tile_type = win_tile.type;
-        for(auto& tile : winner_state.hand){
-            if(tile_type != tile.type){
-                return false;
-            }
-        }
-        for(auto& meld : winner_state.melds){
-            if(tile_type != meld.tile.type){
-                return false;
-            }
-        }
-        return true;
-    };
-    auto seven_pair = [&]() -> bool {
-        if(winner_state.melds.size() != 0){
-            return false;
-        }
+int PointEngine::half_same_color_count(const PlayerTileState& player_state) const{
+    auto toitoiho = [&]() -> int {
         std::array<int, 27> tile_count;
-        for(auto& tile : winner_state.hand){
+        for(auto& tile : player_state.hand){
             tile_count[tile_index(tile)]++;
         }
-        tile_count[tile_index(win_tile)]++;
-        int pair_count = 0;
+        int pair_count = 0, meld_count = 0,
+            to_pair = 0;
         for(auto cnt : tile_count){
-            if(cnt == 2){
+            if (cnt == 1){
+                to_pair++;
+            } else if(cnt == 2){
                 pair_count++;
+            } else if (cnt == 3) {
+                meld_count++;
             }
         }
-        return pair_count == 7;
+        meld_count += player_state.melds.size();
+        if((pair_count == 0) && (to_pair == 1) && (meld_count == 4)){
+            return 1;
+        } else if((pair_count == 2) && (meld_count == 3)){
+            return 1;
+        }
+        return 0;
     };
-    return all_same_color() || seven_pair();
+    return toitoiho();
+}
+
+int PointEngine::same_color_count(const PlayerTileState& player_state) const{
+    auto all_same_color = [&]() -> int {
+        auto tile_type = player_state.hand[0].type;
+        for(auto& tile : player_state.hand){
+            if(tile_type != tile.type){
+                return 0;
+            }
+        }
+        for(auto& meld : player_state.melds){
+            if(tile_type != meld.tile.type){
+                return 0;
+            }
+        }
+        return 1;
+    };
+    auto seven_pair = [&]() -> int {
+        if(player_state.melds.size() != 0){
+            return 0;
+        }
+        std::array<int, 27> tile_count;
+        for(auto& tile : player_state.hand){
+            tile_count[tile_index(tile)]++;
+        }
+        int pair_count = 0, to_pair = 0, dragon_count = 0, to_dragon = 0;
+        for(auto cnt : tile_count){
+            switch (cnt){
+                case 1:
+                    to_pair++;
+                    break;
+                case 2:
+                    pair_count++;
+                    break;
+                case 3:
+                    to_dragon++;
+                    break;
+                case 4:
+                    dragon_count++;
+                    break;
+            }
+        }
+        if((to_pair == 1) && (dragon_count * 2 + pair_count == 6)){
+            return 1 + dragon_count;
+        } else if((to_dragon == 1) && (dragon_count * 2 + pair_count == 5)){
+            return 1 + dragon_count + to_dragon;
+        }
+        return 0;
+    };
+    return all_same_color() + seven_pair();
 }
 
 int PointEngine::chicken_count(const PlayerTileState& player_state, const std::optional<Tile>& win_tile, const Tile& cur_round_chicken,
@@ -183,7 +209,7 @@ int PointEngine::chicken_count(const PlayerTileState& player_state, const std::o
     if(win_tile.has_value() && is_chicken(win_tile.value())){
         count+= config_.hand_chicken_point;
     }
-    if(one_sou.has_value() )
+    if(one_sou.has_value()){}
 }
 
 }

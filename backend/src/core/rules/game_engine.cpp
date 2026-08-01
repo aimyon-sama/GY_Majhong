@@ -7,6 +7,31 @@ namespace gymj::rule{
 
 namespace{
 
+bool is_seven_pair(const std::vector<Tile>& tiles){
+    if(tiles.size() != 14){
+        return false;
+    }
+    std::array<int, 27> tile_count;
+    for(auto& tile : tiles){
+        tile_count[gymj::common::tile_index(tile)]++;
+    }
+    int pair_count = 0, dragon_count = 0;
+    for(auto cnt : tile_count){
+        switch (cnt){
+            case 1:
+            case 3:
+                return false;
+            case 2:
+                pair_count++;
+                break;
+            case 4:
+                dragon_count++;
+                break;
+        }
+    }
+    return pair_count + dragon_count * 2 == 7;
+}
+
 bool can_take_sequence(int index, const std::array<int, gymj::common::tileKindCount>& counts){
     const int rank_index = index % gymj::common::ranksPerSuit;
     return rank_index <= 6 && counts[index] > 0 && counts[index + 1] > 0 && counts[index + 2] > 0;
@@ -185,7 +210,7 @@ bool GameEngine::is_agari_shape(const std::vector<Tile>& tiles, int meld_count) 
         counts[pair_index] += 2;
     }
 
-    return false;
+    return false || is_seven_pair(tiles);
 }
 
 }

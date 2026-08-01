@@ -24,9 +24,9 @@ public:
     explicit PointEngine(PointRuleConfig config);
     PointResult calculate(const RoundResult& round_result, const Tile remaining_wall_top, const std::array<int, 4>& tenpai_seats);
 private:
-    bool is_same_color(const PlayerTileState& winner_state, const Tile& win_tile) const;
-    bool is_half_same_color(const PlayerTileState& winner_state, const Tile& win_tile) const;
-    int calculate_winner_point(const PlayerTileState& winner_state, const Tile& win_tile, const WinDetail& detail) const;
+    int same_color_count(const PlayerTileState& player_state) const;
+    int half_same_color_count(const PlayerTileState& player_state) const;
+    int calculate_tile_point(const PlayerTileState& player_state, const WinDetail& detail) const;
     int chicken_count(const PlayerTileState& player_state, const std::optional<Tile>& win_tile, const Tile& cur_round_chicken, const std::optional<DashChicken>& one_sou, const std::optional<DashChicken>& eight_pin) const;
     PointRuleConfig config_;
 };  
