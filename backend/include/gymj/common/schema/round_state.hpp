@@ -16,6 +16,7 @@ enum class WinType{
 };
 
 enum class WinDetail{
+    NoWinner,
     Simple,
     TsumoFromKan,
     RonKanDiscard,

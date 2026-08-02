@@ -22,12 +22,11 @@ using gymj::common::WinDetail;
 class PointEngine{
 public:
     explicit PointEngine(PointRuleConfig config);
-    PointResult calculate(const RoundResult& round_result, const Tile remaining_wall_top, const std::array<int, 4>& tenpai_seats);
+    PointResult calculate(const RoundResult& round_result, const Tile remaining_wall_top, const std::array<bool, 4>& tenpai_seats);
 private:
     int same_color_count(const PlayerTileState& player_state) const;
     int half_same_color_count(const PlayerTileState& player_state) const;
     int calculate_tile_point(const PlayerTileState& player_state, const WinDetail& detail) const;
-    int chicken_count(const PlayerTileState& player_state, const std::optional<Tile>& win_tile, const Tile& cur_round_chicken, const std::optional<DashChicken>& one_sou, const std::optional<DashChicken>& eight_pin) const;
     PointRuleConfig config_;
 };  
   

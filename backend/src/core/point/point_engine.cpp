@@ -34,13 +34,15 @@ using gymj::common::DashChicken;
 
 PointEngine::PointEngine(PointRuleConfig config) :config_(std::move(config)){}
 
-PointResult PointEngine::calculate(const RoundResult& round_result, const Tile remaning_wall_top, const std::array<int, 4>& tenpai_seats){
+PointResult PointEngine::calculate(const RoundResult& round_result, const Tile remaning_wall_top, const std::array<bool, 4>& tenpai_seats){
     PointResult point_result = PointResult{};
     if(round_result.has_winner == 0){
         for(int i = 0; i < 4; i++){
             if(tenpai_seats[i] == 0){
                 for(int j = 0; j < 4; j++){
-                    point_result.point_to_others[i][j] += tenpai_seats[j];
+                    if(tenpai_seats[j] == true){
+                        point_result.point_to_others[i][j] += calculate_tile_point(round_result.states[j], round_result.detail);
+                    }
                 }
             }
         }
@@ -54,24 +56,56 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
             if(round_result.discarder_seat == i && round_result.detail == gymj::common::WinDetail::RonKanDiscard){
                 continue;
             }
-            int cur_point = 0;
 
-            point_result.detail[i].point_from_chicken = chicken_count(round_result.states[i], std::make_optional(round_result.win_tile), remaning_wall_top, round_result.one_sou, round_result.eight_pin);
-            cur_point += point_result.detail[i].point_from_chicken;
+            int chicken_tmp = chicken_count(round_result.states[i], i, std::make_optional(round_result.win_tile), remaning_wall_top, round_result.one_sou, round_result.eight_pin);
+            if(tenpai_seats[i] == false){
+                // be responsible of 
+                for(int j = 0; j < 4; j++){
+                    if(i == j || tenpai_seats[j] == false) {
+                        continue;
+                    }
+                    point_result.point_to_others[i][j] += chicken_tmp;
+                    point_result.detail[i].point_from_chicken -= chicken_tmp;
+                }
+                for(auto& meld : round_result.states[i].melds){
+                    if(meld.type == gymj::common::MeldType::OpenKan){
+                        int discarder_seat = meld.from_seat;
+                        point_result.point_to_others[i][discarder_seat] += config_.kan_point;
+                        point_result.detail[i].point_from_kan -= config_.kan_point;
+                    } else if(meld.type == gymj::common::MeldType::AddKan || meld.type == gymj::common::MeldType::SelfKan){
+                        for(int j = 0; j < 4; j++){
+                            if(i == j || tenpai_seats[j] == false){
+                                continue;
+                            }
+                            point_result.point_to_others[i][j] += config_.kan_point;
+                            point_result.detail[i].point_from_kan -= config_.kan_point;
+                        }
+                    }
+                }
+            } else {
+                for(int j = 0; j < 4; j++){
+                    if(i == j) {
+                        continue;
+                    }
+                    point_result.point_to_others[j][i] += chicken_tmp;
+                }
+                point_result.detail[i].point_from_chicken = chicken_tmp;
+            }
+            
 
+            int kan_tmp = 0;
             for(auto& meld : round_result.states[i].melds){
                 if(meld.type == gymj::common::MeldType::AddKan || meld.type == gymj::common::MeldType::OpenKan){
-                    point_result.detail[i].point_from_kan += config_.kan_point;
+                    kan_tmp += config_.kan_point;
+                    int discarder_seat = meld.from_seat;
+                    point_result.point_to_others[discarder_seat][i] = config_.kan_point;
+                } else if(meld.type == gymj::common::MeldType::SelfKan){
+                    kan_tmp += config_.kan_point;
                 }
             }
+            point_result.detail[i].point_from_kan
             cur_point += point_result.detail[i].point_from_kan;
 
-            for(int j = 0; j < 4; j++){
-                if(j != i){
-                    point_result.point_to_others[j][i] += cur_point;
-                }
-            }
-            point_result.detail[i].total_point += cur_point;
         }
         //calculate point of winner
         int winner_seat = round_result.winner_seat;
@@ -193,23 +227,6 @@ int PointEngine::same_color_count(const PlayerTileState& player_state) const{
         return 0;
     };
     return all_same_color() + seven_pair();
-}
-
-int PointEngine::chicken_count(const PlayerTileState& player_state, const std::optional<Tile>& win_tile, const Tile& cur_round_chicken,
-                               const std::optional<DashChicken>& one_sou, const std::optional<DashChicken>& eight_pin) const{
-    auto is_chicken = [&](Tile tile) -> bool {
-        return tile == chicken || tile == black_chicken || tile == cur_round_chicken;
-    };
-    int count = 0;
-    for(auto& tile : player_state.river){
-        if(is_chicken(tile)){
-            count += config_.hand_chicken_point;
-        }
-    }
-    if(win_tile.has_value() && is_chicken(win_tile.value())){
-        count+= config_.hand_chicken_point;
-    }
-    if(one_sou.has_value()){}
 }
 
 }
