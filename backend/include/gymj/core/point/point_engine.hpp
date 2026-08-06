@@ -1,6 +1,7 @@
 #ifndef GYMJ_CORE_POINT_ENGINE_HPP
 #define GYMJ_CORE_POINT_ENGINE_HPP
 
+#include <array>
 #include <vector>
 
 #include <gymj/common/schema/tile.hpp>
@@ -22,7 +23,7 @@ using gymj::common::WinDetail;
 class PointEngine{
 public:
     explicit PointEngine(PointRuleConfig config);
-    PointResult calculate(const RoundResult& round_result, const Tile remaining_wall_top, const std::array<bool, 4>& tenpai_seats);
+    PointResult calculate(const RoundResult& round_result, const Tile round_chicken, const std::array<bool, 4>& tenpai_seats);
 private:
     int same_color_count(const PlayerTileState& player_state) const;
     int half_same_color_count(const PlayerTileState& player_state) const;
