@@ -3,7 +3,6 @@
 #include <optional>
 
 #include <gymj/core/point/point_engine.hpp>
-#include <gymj/core/rules/rule_engine.hpp>
 
 namespace {
 

@@ -6,6 +6,7 @@
 
 #include <gymj/common/schema/tile.hpp>
 #include <gymj/common/player/player_info.hpp>
+#include <gymj/common/player/player_action.hpp>
 
 namespace gymj::common{
 
@@ -40,6 +41,23 @@ struct RoundResult{
     std::array<PlayerTileState, 4> states;
     std::optional<DashChicken> one_sou;
     std::optional<DashChicken> eight_pin;
+};
+
+enum class RoundStage{
+    NotActive,
+    WaitingDraw,
+    WaitingDiscard,
+    WaitingClaim,
+    Ended
+};
+
+struct RoundState{
+    RoundStage stage = RoundStage::NotActive;
+    std::array<PlayerTileState, 4> states;
+    std::optional<DashChicken> one_sou;
+    std::optional<DashChicken> eight_pin;
+    int acting_player = -1; // -1 -> no player acting
+    PlayerAction action;
 };
 
 }

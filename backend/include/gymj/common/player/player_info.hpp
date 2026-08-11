@@ -18,6 +18,7 @@ struct PlayerTileState{
     std::vector<Tile> hand;
     std::vector<Meld> melds;
     std::optional<Tile> draw_buffer;
+    std::optional<Tile> discard_buffer;
 };
 
 struct PlayerRoundState{
