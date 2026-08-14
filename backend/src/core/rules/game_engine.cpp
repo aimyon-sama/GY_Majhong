@@ -11,9 +11,13 @@ bool is_seven_pair(const std::vector<Tile>& tiles){
     if(tiles.size() != 14){
         return false;
     }
-    std::array<int, 27> tile_count;
+    std::array<int, gymj::common::tileKindCount> tile_count{};
     for(auto& tile : tiles){
-        tile_count[gymj::common::tile_index(tile)]++;
+        const int index = gymj::common::tile_index(tile);
+        if(index < 0){
+            return false;
+        }
+        tile_count[index]++;
     }
     int pair_count = 0, dragon_count = 0;
     for(auto cnt : tile_count){

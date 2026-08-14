@@ -57,7 +57,7 @@ struct RoundState{
     std::optional<DashChicken> one_sou;
     std::optional<DashChicken> eight_pin;
     int acting_player = -1; // -1 -> no player acting
-    PlayerAction action;
+    std::optional<PlayerAction> pending_action;
 };
 
 }

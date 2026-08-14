@@ -12,6 +12,7 @@ target_include_directories(gymj_core_rules
 
 target_link_libraries(gymj_core_rules
     PUBLIC
+        gymj::core_point
         gymj::common
 )
 

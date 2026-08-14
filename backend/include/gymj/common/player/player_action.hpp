@@ -10,13 +10,16 @@ enum class PlayerActionType{
     Tsumo,
     Ron,
     Pon,
-    Kan,
+    SelfKan,
+    AddKan,
+    OpenKan,
+    Pass,
     Draw,
     Discard
 };
 
 struct PlayerAction{
-    PlayerActionType type;
+    PlayerActionType type = PlayerActionType::None;
     Tile action_tile;
 };
 
