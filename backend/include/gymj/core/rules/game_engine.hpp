@@ -20,7 +20,7 @@ public:
     bool can_add_kan(const std::vector<Meld>& melds, Tile to_kan) const;
     bool can_self_kan(const std::vector<Tile>& tiles, Tile to_kan) const;
     bool can_tsumo(const std::vector<Tile>& tiles, int meld_count = 0) const;
-    bool can_ron(const std::vector<Tile>& tiles, Tile to_ron, int meld_count = 0) const;
+    bool can_ron(const std::vector<Tile>& tiles, std::vector<Meld> melds, Tile to_ron, bool is_tile_from_kan, bool is_same_color) const;
     bool can_multi_ron() const;
     bool is_tenpai(const std::vector<Tile>& tiles, int meld_count = 0) const;
 private:

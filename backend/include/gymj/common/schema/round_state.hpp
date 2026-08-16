@@ -51,6 +51,15 @@ enum class RoundStage{
     Ended
 };
 
+enum class DiscardDetail{
+    None,
+    SimpleDraw,
+    AfterPon,
+    AfterOpenKanDraw,
+    AfterSelfKanDraw,
+    AfterAddKanDraw
+};
+
 struct RoundState{
     RoundStage stage = RoundStage::NotActive;
     std::array<PlayerTileState, 4> states;
@@ -58,6 +67,7 @@ struct RoundState{
     std::optional<DashChicken> eight_pin;
     int acting_player = -1; // -1 -> no player acting
     std::optional<PlayerAction> pending_action;
+    DiscardDetail discard_detail = DiscardDetail::None;
 };
 
 }

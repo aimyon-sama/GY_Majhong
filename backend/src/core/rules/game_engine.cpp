@@ -138,10 +138,17 @@ bool GameEngine::can_tsumo(const std::vector<Tile>& tiles, int meld_count) const
     return is_agari_shape(tiles, meld_count);
 }
 
-bool GameEngine::can_ron(const std::vector<Tile>& tiles, Tile to_ron, int meld_count) const{
+bool GameEngine::can_ron(const std::vector<Tile>& tiles, std::vector<Meld> melds, Tile to_ron, bool is_tile_from_kan, bool is_same_color) const{
     auto tmp = tiles;
     tmp.push_back(to_ron);
-    return is_agari_shape(tmp, meld_count);
+    bool have_kan = false;
+    for(auto m : melds){
+        if(m.type == gymj::common::MeldType::Pon){
+            continue;
+        }
+        have_kan = true;
+    }
+    return is_agari_shape(tmp, melds.size()) && (have_kan || is_tile_from_kan || is_same_color);
 }
 
 bool GameEngine::can_multi_ron() const{
