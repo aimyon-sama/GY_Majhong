@@ -227,6 +227,10 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
     return point_result;
 }
 
+bool PointEngine::can_simple_ron(const PlayerTileState& player_state) const{
+    return (same_color_count(player_state) > 0) && (half_same_color_count(player_state) > 0);
+}
+
 int PointEngine::calculate_tile_point(const PlayerTileState& player_state, const WinDetail& detail) const{
     int total_point = 0;
     int half_same_color_cnt = half_same_color_count(player_state),

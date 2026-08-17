@@ -118,9 +118,9 @@ void test_ron_adds_winning_tile(){
         p(5),
     };
 
-    require(engine.can_ron(waiting_tiles, p(5)),
+    require(engine.can_ron(waiting_tiles, {}, p(5), false, true),
             "can_ron should test the hand after adding the winning tile");
-    require(!engine.can_ron(waiting_tiles, p(6)),
+    require(!engine.can_ron(waiting_tiles, {}, p(6), false, true),
             "can_ron should reject non-winning discard tiles");
 }
 

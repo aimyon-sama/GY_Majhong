@@ -37,9 +37,6 @@ std::array<std::vector<PlayerAction>, 4> RuleEngine::get_available_actions(const
                     if(game_engine_.can_self_kan(discarder_state.hand, drawing_tile)){
                         available_actions[seat].push_back(PlayerAction{PlayerActionType::SelfKan, drawing_tile});
                     }
-                    if(available_actions[seat].size() > 0){
-                        available_actions[seat].push_back(PlayerAction{PlayerActionType::Pass, drawing_tile});
-                    }
                     break;
                 }
                 case DiscardDetail::AfterPon:
@@ -64,13 +61,16 @@ std::array<std::vector<PlayerAction>, 4> RuleEngine::get_available_actions(const
                 if(i == seat){
                     continue;
                 }
-                if(game_engine_.can_pon(state.states[i].hand, tile)){
-                    available_actions[i].push_back(PlayerAction{PlayerActionType::Pon, tile});
+                bool is_same_color = point_engine_.can_simple_ron(state.states[i]);
+                if(action.type != PlayerActionType::AddKan){
+                    if(game_engine_.can_pon(state.states[i].hand, tile)){
+                        available_actions[i].push_back(PlayerAction{PlayerActionType::Pon, tile});
+                    }
+                    if(game_engine_.can_open_kan(state.states[i].hand, tile)){
+                        available_actions[i].push_back(PlayerAction{PlayerActionType::OpenKan, tile});
+                    }
                 }
-                if(game_engine_.can_open_kan(state.states[i].hand, tile)){
-                    available_actions[i].push_back(PlayerAction{PlayerActionType::OpenKan, tile});
-                }
-                if(game_engine_.can_ron(state.states[i].hand, state.states[i].melds, tile, (is_from_add_kan || is_discard_from_kan), )){
+                if(game_engine_.can_ron(state.states[i].hand, state.states[i].melds, tile, (is_from_add_kan || is_discard_from_kan), is_same_color)){
                     available_actions[i].push_back(PlayerAction{PlayerActionType::Ron, tile});
                 }
                 if(available_actions[i].size() > 0){
@@ -83,7 +83,7 @@ std::array<std::vector<PlayerAction>, 4> RuleEngine::get_available_actions(const
     return available_actions;
 }
 
-std::pair<int, PlayerAction> RuleEngine::resolve_calims(std::array<PlayerAction, 4>& player_claims){
+std::vector<std::pair<int, PlayerAction>> RuleEngine::resolve_claims(const std::array<PlayerAction, 4>& player_claims, int acting_player){
     std::array<int, 4> action_priorities{};
     for(int i = 0; i < 4; i++){
         switch(player_claims[i].type){
@@ -102,14 +102,26 @@ std::pair<int, PlayerAction> RuleEngine::resolve_calims(std::array<PlayerAction,
                 break;
         }
     }
-    int highest_priority_seat, temp_max = -1;
-    for(int i = 0; i <4; i++){
-        if(action_priorities[i] > temp_max){
-            highest_priority_seat = i;
+    int highest_priority_seat, temp_max = 0;
+    std::vector<std::pair<int, PlayerAction>> result{};
+    for(int i = acting_player, cnt = 0; cnt < 4; cnt++, i = (i + 1) % 4){
+        if(action_priorities[i] == 2){
+            result.emplace_back(i, player_claims[i]);
+            if(game_engine_.can_multi_ron() == false){
+                break;
+            }
+        } else if(action_priorities[i] > temp_max){
             temp_max = action_priorities[i];
+            highest_priority_seat = i;
         }
     }
-    return std::make_pair(highest_priority_seat, player_claims[highest_priority_seat]);
+    if(result.size() > 0){
+        return result;
+    } else if(temp_max > 0){
+        return {std::make_pair(highest_priority_seat, player_claims[highest_priority_seat])};
+    } else {
+        return result;
+    }
 }
 
 PointResult RuleEngine::calculate_points(const RoundResult& result, const Tile round_chicken){

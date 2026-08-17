@@ -24,6 +24,7 @@ class PointEngine{
 public:
     explicit PointEngine(PointRuleConfig config);
     PointResult calculate(const RoundResult& round_result, const Tile round_chicken, const std::array<bool, 4>& tenpai_seats);
+    bool can_simple_ron(const PlayerTileState& player_state) const;
 private:
     int same_color_count(const PlayerTileState& player_state) const;
     int half_same_color_count(const PlayerTileState& player_state) const;
