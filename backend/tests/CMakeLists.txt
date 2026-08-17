@@ -17,6 +17,25 @@ add_test(
     COMMAND gymj_game_engine_tests
 )
 
+add_executable(gymj_rule_engine_tests
+    rule_engine_tests.cpp
+)
+
+target_link_libraries(gymj_rule_engine_tests
+    PRIVATE
+        gymj::core_rules
+)
+
+target_compile_features(gymj_rule_engine_tests
+    PRIVATE
+        cxx_std_20
+)
+
+add_test(
+    NAME gymj_rule_engine_tests
+    COMMAND gymj_rule_engine_tests
+)
+
 add_executable(gymj_point_engine_tests
     point_engine_tests.cpp
 )
