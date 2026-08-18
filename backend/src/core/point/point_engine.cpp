@@ -228,7 +228,7 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
 }
 
 bool PointEngine::can_simple_ron(const PlayerTileState& player_state) const{
-    return (same_color_count(player_state) > 0) && (half_same_color_count(player_state) > 0);
+    return (same_color_count(player_state) > 0) || (half_same_color_count(player_state) > 0);
 }
 
 int PointEngine::calculate_tile_point(const PlayerTileState& player_state, const WinDetail& detail) const{
@@ -273,6 +273,8 @@ int PointEngine::half_same_color_count(const PlayerTileState& player_state) cons
         if((pair_count == 0) && (to_pair == 1) && (meld_count == 4)){
             return 1;
         } else if((pair_count == 2) && (meld_count == 3)){
+            return 1;
+        } else if((pair_count == 1) && (meld_count == 4)){
             return 1;
         }
         return 0;
@@ -323,6 +325,8 @@ int PointEngine::same_color_count(const PlayerTileState& player_state) const{
         if((to_pair == 1) && (dragon_count * 2 + pair_count == 6)){
             return 1 + dragon_count;
         } else if((to_dragon == 1) && (dragon_count * 2 + pair_count == 5)){
+            return 1 + dragon_count + to_dragon;
+        } else if(dragon_count * 2 + pair_count == 7){
             return 1 + dragon_count + to_dragon;
         }
         return 0;
