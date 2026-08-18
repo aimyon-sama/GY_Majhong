@@ -10,6 +10,7 @@ struct PointRuleConfig{
     int dash_chicken_point = 3;
     int hand_chicken_point = 1;
     int kan_point = 5;
+    bool allow_no_chicken_no_kan = true;
 };
 
 struct GameRuleConfig{

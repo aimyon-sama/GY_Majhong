@@ -199,6 +199,23 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
         //calculate point of winner
         int winner_seat = round_result.winner_seat;
         int winner_point = calculate_tile_point(round_result.states[winner_seat], round_result.detail);
+        auto no_chicken_no_kan = [&]() -> int {
+            for(auto tile : round_result.states[winner_seat].hand){
+                if(tile == chicken || tile == black_chicken || tile == round_chicken){
+                    return 0;
+                }
+            }
+            for(auto meld : round_result.states[winner_seat].melds){
+                if(meld.tile == chicken || meld.tile == black_chicken || meld.tile == round_chicken){
+                    return 0;
+                }
+                if(meld.type != MeldType::Pon){
+                    return 0;
+                }
+            }
+            return 1;
+        };
+        winner_point += config_.allow_no_chicken_no_kan && no_chicken_no_kan()? config_.half_same_color_point : 0; 
         switch (round_result.win_type){
             case WinType::Tsumo:
                 for(int i = 0; i < 4; i++){
