@@ -70,6 +70,27 @@ struct RoundState{
     DiscardDetail discard_detail = DiscardDetail::None;
 };
 
+struct RoundConfig {
+    int dealer_seat = 0;
+    int player_count = 4;
+    int action_timeout_ms = 8000;
+    std::uint64_t seed = 0;
+    RuleConfig rule;
+};
+
+struct RoundTransition {
+};
+
+struct PlayerRoundView {
+    int self_seat = -1;
+    std::uint64_t seq = 0;
+    RoundStage stage = RoundStage::NotActive;
+    int acting_player = -1;
+
+    std::array<gymj::common::PlayerTileState, 4> visible_states;
+    std::vector<PlayerAction> available_actions;
+};
+
 }
 
 #endif
