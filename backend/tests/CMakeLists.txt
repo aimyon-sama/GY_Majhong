@@ -54,3 +54,22 @@ add_test(
     NAME gymj_point_engine_tests
     COMMAND gymj_point_engine_tests
 )
+
+add_executable(gymj_wall_tests
+    wall_tests.cpp
+)
+
+target_link_libraries(gymj_wall_tests
+    PRIVATE
+        gymj::core_room
+)
+
+target_compile_features(gymj_wall_tests
+    PRIVATE
+        cxx_std_20
+)
+
+add_test(
+    NAME gymj_wall_tests
+    COMMAND gymj_wall_tests
+)

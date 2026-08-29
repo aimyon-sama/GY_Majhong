@@ -122,6 +122,7 @@ void test_waiting_discard_after_draw_uses_draw_buffer(){
     state.discard_detail = DiscardDetail::SimpleDraw;
     state.states[2].hand = one_tile_wait_hand();
     state.states[2].draw_buffer = p(5);
+    state.states[2].hand.push_back(*state.states[2].draw_buffer);
 
     const auto actions = engine.get_available_actions(state);
 
@@ -149,6 +150,7 @@ void test_waiting_discard_after_draw_detects_kans_from_draw_buffer(){
         p(9),
     };
     self_kan_state.states[0].draw_buffer = p(7);
+    self_kan_state.states[0].hand.push_back(*self_kan_state.states[0].draw_buffer);
 
     const auto self_kan_actions = engine.get_available_actions(self_kan_state);
     require(has_action(self_kan_actions[0], PlayerActionType::SelfKan, p(7)),
@@ -161,6 +163,7 @@ void test_waiting_discard_after_draw_detects_kans_from_draw_buffer(){
     add_kan_state.states[1].hand = non_winning_hand();
     add_kan_state.states[1].melds.push_back(Meld{MeldType::Pon, m(9), 3});
     add_kan_state.states[1].draw_buffer = m(9);
+    add_kan_state.states[1].hand.push_back(*add_kan_state.states[1].draw_buffer);
 
     const auto add_kan_actions = engine.get_available_actions(add_kan_state);
     require(has_action(add_kan_actions[1], PlayerActionType::AddKan, m(9)),

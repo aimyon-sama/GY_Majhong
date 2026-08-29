@@ -200,6 +200,11 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
         int winner_seat = round_result.winner_seat;
         int winner_point = calculate_tile_point(round_result.states[winner_seat], round_result.detail);
         auto no_chicken_no_kan = [&]() -> int {
+            if(round_result.detail == gymj::common::WinDetail::TsumoFromKan ||
+               round_result.detail == gymj::common::WinDetail::RonKanDiscard ||
+               round_result.detail == gymj::common::WinDetail::RonAddKan){
+                return 0;
+            }
             for(auto tile : round_result.states[winner_seat].hand){
                 if(tile == chicken || tile == black_chicken || tile == round_chicken){
                     return 0;

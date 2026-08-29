@@ -263,9 +263,9 @@ void test_simple_ron(){
     print_round("simple_ron", round, round_chicken, tenpai);
     const auto result = engine.calculate(round, round_chicken, tenpai);
 
-    expect_delta(result, {3, -3, 0, 0}, "simple_ron");
-    require(result.point_to_others[1][0] == 3, "discarder should pay winner");
-    require(result.detail[0].point_from_agari == 3, "winner agari detail should be ron value");
+    expect_delta(result, {11, -11, 0, 0}, "simple_ron");
+    require(result.point_to_others[1][0] == 11, "discarder should pay winner including no-chicken-no-kan bonus");
+    require(result.detail[0].point_from_agari == 11, "winner agari detail should include no-chicken-no-kan bonus");
     print_result("simple_ron", result);
 }
 
@@ -278,8 +278,8 @@ void test_simple_tsumo(){
     print_round("simple_tsumo", round, round_chicken, tenpai);
     const auto result = engine.calculate(round, round_chicken, tenpai);
 
-    expect_delta(result, {9, -3, -3, -3}, "simple_tsumo");
-    require(result.detail[0].point_from_agari == 9, "winner agari detail should collect three tsumo payments");
+    expect_delta(result, {33, -11, -11, -11}, "simple_tsumo");
+    require(result.detail[0].point_from_agari == 33, "winner agari detail should collect three payments including no-chicken-no-kan bonus");
     print_result("simple_tsumo", result);
 }
 

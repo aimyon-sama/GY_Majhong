@@ -7,6 +7,7 @@
 #include <gymj/common/schema/tile.hpp>
 #include <gymj/common/player/player_info.hpp>
 #include <gymj/common/player/player_action.hpp>
+#include <gymj/common/rules/rule_config.hpp>
 
 namespace gymj::common{
 
