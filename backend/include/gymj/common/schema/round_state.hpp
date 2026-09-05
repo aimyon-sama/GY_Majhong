@@ -2,7 +2,10 @@
 #define GYMJ_COMMON_ROUND_STATE_HPP
 
 #include <array>
+#include <cstdint>
 #include <optional>
+#include <string>
+#include <vector>
 
 #include <gymj/common/schema/tile.hpp>
 #include <gymj/common/player/player_info.hpp>
@@ -81,21 +84,26 @@ struct RoundConfig {
 };
 
 enum class RoundEventType{
+    RoundStarted,
     InitialHands,
     PlayerDraw,
     PlayerDiscard,
+    PlayerPass,
     PlayerPon,
     PlayerOpenKan,
     PlayerAddKan,
     PlayerSelfKan,
     PlayerTsumo,
-    PlayerRon
+    PlayerRon,
+    RoundDraw,
+    PointCalculated,
+    RoundEnded
 };
 
 struct RoundEvent{
     std::uint64_t seq = 0;
 
-    RoundEventType type;
+    RoundEventType type = RoundEventType::RoundStarted;
     int player_seat = -1;
     int from_seat = -1;
 
@@ -104,7 +112,19 @@ struct RoundEvent{
 };
 
 struct RoundTransition {
-    RoundEvent events;
+    bool accepted = true;
+    std::string error;
+
+    std::uint64_t seq_before = 0;
+    std::uint64_t seq_after = 0;
+
+    RoundStage stage_before = RoundStage::NotActive;
+    RoundStage stage_after = RoundStage::NotActive;
+
+    int actor_before = -1;
+    int actor_after = -1;
+
+    std::vector<RoundEvent> events;
 
     std::array<std::vector<PlayerAction>, 4> available_actions{};
 

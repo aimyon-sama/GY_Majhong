@@ -28,6 +28,7 @@ public:
 
     RoundTransition start();
     RoundTransition submit_action(int seat, const PlayerAction& action);
+    RoundTransition draw_for_current_player();
     RoundTransition submit_timeout(int seat);
     std::array<std::vector<PlayerAction>, 4> available_actions() const;
     

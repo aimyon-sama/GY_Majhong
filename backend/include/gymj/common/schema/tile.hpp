@@ -9,13 +9,16 @@ namespace gymj::common{
 enum class TileType{
     Man,
     Sou,
-    Pin
+    Pin,
+    None
 };
 
 struct Tile{
     TileType type;
     std::uint8_t rank;
 };
+
+constexpr Tile null_tile = Tile{TileType::None, 0};
 
 enum class MeldType{
     Pon,

@@ -14,7 +14,6 @@ enum class PlayerActionType{
     AddKan,
     OpenKan,
     Pass,
-    Draw,
     Discard
 };
 
