@@ -14,6 +14,11 @@ struct PlayerInfo{
 };
 
 struct PlayerTileState{
+    PlayerTileState(){
+        river.reserve(20);
+        hand.reserve(14);
+        melds.reserve(4);
+    }
     std::vector<Tile> river;
     std::vector<Tile> hand;
     std::vector<Meld> melds;

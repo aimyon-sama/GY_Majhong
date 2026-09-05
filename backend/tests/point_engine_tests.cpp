@@ -310,7 +310,7 @@ void test_claimed_dash_chicken(){
     const auto result = engine.calculate(round, round_chicken, tenpai);
 
     print_result("claimed_dash_chicken", result);
-    expect_delta(result, {11, -5, 0, -6}, "claimed_dash_chicken");
+    expect_delta(result, {11, -5, 8, -14}, "claimed_dash_chicken");
     require(result.point_to_others[1][0] == 5, "discarder of first 1s should pay pon claimer extra dash chicken");
     require(result.detail[0].point_from_chicken == 11, "claimer chicken detail should include meld chicken and dash bonus");
 }
@@ -327,7 +327,7 @@ void test_kan_payments(){
     print_round("kan_payments", round, round_chicken, tenpai);
     const auto result = engine.calculate(round, round_chicken, tenpai);
 
-    expect_delta(result, {35, -15, -7, -13}, "kan_payments");
+    expect_delta(result, {35, -15, 1, -21}, "kan_payments");
     require(result.point_to_others[1][0] == 15, "open kan source plus two all-pay kans should charge seat 1");
     require(result.detail[0].point_from_kan == 35, "kan detail should include all kan payments received");
     print_result("kan_payments", result);

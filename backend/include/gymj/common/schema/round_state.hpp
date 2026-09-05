@@ -8,6 +8,7 @@
 #include <gymj/common/player/player_info.hpp>
 #include <gymj/common/player/player_action.hpp>
 #include <gymj/common/rules/rule_config.hpp>
+#include <gymj/common/schema/point.hpp>
 
 namespace gymj::common{
 
@@ -79,7 +80,37 @@ struct RoundConfig {
     RuleConfig rule;
 };
 
+enum class RoundEventType{
+    InitialHands,
+    PlayerDraw,
+    PlayerDiscard,
+    PlayerPon,
+    PlayerOpenKan,
+    PlayerAddKan,
+    PlayerSelfKan,
+    PlayerTsumo,
+    PlayerRon
+};
+
+struct RoundEvent{
+    std::uint64_t seq = 0;
+
+    RoundEventType type;
+    int player_seat = -1;
+    int from_seat = -1;
+
+    std::optional<Tile> tile;
+    std::vector<Tile> tiles;
+};
+
 struct RoundTransition {
+    RoundEvent events;
+
+    std::array<std::vector<PlayerAction>, 4> available_actions{};
+
+    std::optional<RoundResult> round_result;
+    std::optional<PointResult> point_result;
+    bool round_ended = false;
 };
 
 struct PlayerRoundView {
@@ -91,7 +122,6 @@ struct PlayerRoundView {
     std::array<gymj::common::PlayerTileState, 4> visible_states;
     std::vector<PlayerAction> available_actions;
 };
-
 }
 
 #endif

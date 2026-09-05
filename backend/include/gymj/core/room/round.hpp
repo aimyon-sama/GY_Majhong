@@ -7,6 +7,7 @@
 #include <gymj/common/schema/tile.hpp>
 #include <gymj/common/schema/round_state.hpp>
 #include <gymj/core/rules/rule_engine.hpp>
+#include <gymj/core/room/wall.hpp>
 
 namespace gymj::room{
 
@@ -25,6 +26,7 @@ class Round{
 public:
     Round(RoundConfig config, std::array<PlayerInfo, 4> players, std::mt19937* rng);
 
+    RoundTransition start();
     RoundTransition submit_action(int seat, const PlayerAction& action);
     RoundTransition submit_timeout(int seat);
     std::array<std::vector<PlayerAction>, 4> available_actions() const;
@@ -36,6 +38,8 @@ public:
 private:
     std::array<PlayerInfo, 4> players_;
 
+    Wall wall_;
+
     RoundState state_;
     int cur_player_;
     std::uint64_t seq_num_;// 当前动作id
@@ -45,6 +49,11 @@ private:
     RuleEngine rule_engine_;
     RoundConfig config_;
     RoundResult result_;
+
+private: // private actions
+    void generate_initial_hands();
+    Tile draw_a_tile();
+    Tile draw_a_kan_tile();
 };
     
 }
