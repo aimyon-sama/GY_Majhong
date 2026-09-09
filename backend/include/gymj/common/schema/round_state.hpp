@@ -83,65 +83,6 @@ struct RoundConfig {
     RuleConfig rule;
 };
 
-enum class RoundEventType{
-    RoundStarted,
-    InitialHands,
-    PlayerDraw,
-    PlayerDiscard,
-    PlayerPass,
-    PlayerPon,
-    PlayerOpenKan,
-    PlayerAddKan,
-    PlayerSelfKan,
-    PlayerTsumo,
-    PlayerRon,
-    RoundDraw,
-    PointCalculated,
-    RoundEnded
-};
-
-struct RoundEvent{
-    std::uint64_t seq = 0;
-
-    RoundEventType type = RoundEventType::RoundStarted;
-    int player_seat = -1;
-    int from_seat = -1;
-
-    std::optional<Tile> tile;
-    std::vector<Tile> tiles;
-};
-
-struct RoundTransition {
-    bool accepted = true;
-    std::string error;
-
-    std::uint64_t seq_before = 0;
-    std::uint64_t seq_after = 0;
-
-    RoundStage stage_before = RoundStage::NotActive;
-    RoundStage stage_after = RoundStage::NotActive;
-
-    int actor_before = -1;
-    int actor_after = -1;
-
-    std::vector<RoundEvent> events;
-
-    std::array<std::vector<PlayerAction>, 4> available_actions{};
-
-    std::optional<RoundResult> round_result;
-    std::optional<PointResult> point_result;
-    bool round_ended = false;
-};
-
-struct PlayerRoundView {
-    int self_seat = -1;
-    std::uint64_t seq = 0;
-    RoundStage stage = RoundStage::NotActive;
-    int acting_player = -1;
-
-    std::array<gymj::common::PlayerTileState, 4> visible_states;
-    std::vector<PlayerAction> available_actions;
-};
 }
 
 #endif
