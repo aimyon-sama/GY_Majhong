@@ -73,3 +73,22 @@ add_test(
     NAME gymj_wall_tests
     COMMAND gymj_wall_tests
 )
+
+add_executable(gymj_round_tests
+    round_tests.cpp
+)
+
+target_link_libraries(gymj_round_tests
+    PRIVATE
+        gymj::core_room
+)
+
+target_compile_features(gymj_round_tests
+    PRIVATE
+        cxx_std_20
+)
+
+add_test(
+    NAME gymj_round_tests
+    COMMAND gymj_round_tests
+)
