@@ -1,6 +1,7 @@
 #include <utility>
 #include <array>
 #include <optional>
+#include <algorithm>
 
 #include <gymj/core/point/point_engine.hpp>
 
@@ -51,6 +52,11 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
             point_result.detail[i] = gymj::common::PointDetail{point_result.delta_result[i], 0, 0, 0, point_result.delta_result[i]};
         }
     } else {
+        // 多响使用完整赢家列表；兼容仍只填写单个 winner_seat 的调用方。
+        auto winners = round_result.winner_seats;
+        if(winners.empty()){
+            winners.push_back(round_result.winner_seat);
+        }
         //calculate point of every seat
         for(int i = 0; i < 4; i++){
             if(round_result.discarder_seat == i && round_result.detail == gymj::common::WinDetail::RonKanDiscard){
@@ -122,7 +128,8 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
                 }
             } else {
                 int get_chicken = 0;
-                if(round_result.winner_seat == i && (is_chicken(round_result.win_tile) || round_result.win_tile == round_chicken)){
+                const bool is_winner = std::find(winners.begin(), winners.end(), i) != winners.end();
+                if(is_winner && (is_chicken(round_result.win_tile) || round_result.win_tile == round_chicken)){
                     get_chicken += config_.hand_chicken_point;
                 }
                 for(auto& t : round_result.states[i].hand){
@@ -196,48 +203,54 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
         apply_claimed_dash_chicken(round_result.one_sou);
         apply_claimed_dash_chicken(round_result.eight_pin);
 
-        //calculate point of winner
-        int winner_seat = round_result.winner_seat;
-        int winner_point = calculate_tile_point(round_result.states[winner_seat], round_result.detail);
-        auto no_chicken_no_kan = [&]() -> int {
-            if(round_result.detail == gymj::common::WinDetail::TsumoFromKan ||
-               round_result.detail == gymj::common::WinDetail::RonKanDiscard ||
-               round_result.detail == gymj::common::WinDetail::RonAddKan){
-                return 0;
-            }
-            for(auto tile : round_result.states[winner_seat].hand){
-                if(tile == chicken || tile == black_chicken || tile == round_chicken){
+        // 鸡杠分已经整局结算一次，下面仅逐个计算赢家的胡牌分。
+        for(const int winner_seat : winners){
+            int winner_point = calculate_tile_point(round_result.states[winner_seat], round_result.detail);
+            auto no_chicken_no_kan = [&]() -> int {
+                if(round_result.detail == gymj::common::WinDetail::TsumoFromKan ||
+                   round_result.detail == gymj::common::WinDetail::RonKanDiscard ||
+                   round_result.detail == gymj::common::WinDetail::RonAddKan){
                     return 0;
                 }
-            }
-            for(auto meld : round_result.states[winner_seat].melds){
-                if(meld.tile == chicken || meld.tile == black_chicken || meld.tile == round_chicken){
+                // 结局手牌不含单独保存的胡牌，判断无鸡时需要将它计入。
+                if(round_result.win_tile == chicken || round_result.win_tile == black_chicken
+                    || round_result.win_tile == round_chicken){
                     return 0;
                 }
-                if(meld.type != MeldType::Pon){
-                    return 0;
-                }
-            }
-            return 1;
-        };
-        winner_point += config_.allow_no_chicken_no_kan && no_chicken_no_kan()? config_.half_same_color_point : 0; 
-        switch (round_result.win_type){
-            case WinType::Tsumo:
-                for(int i = 0; i < 4; i++){
-                    if(i != winner_seat){
-                        point_result.point_to_others[i][winner_seat] += winner_point;
-                        point_result.detail[winner_seat].point_from_agari += winner_point;
+                for(auto tile : round_result.states[winner_seat].hand){
+                    if(tile == chicken || tile == black_chicken || tile == round_chicken){
+                        return 0;
                     }
                 }
-                break;
-            case WinType::Ron: {
-                int discarder_seat = round_result.discarder_seat;
-                point_result.point_to_others[discarder_seat][winner_seat] += winner_point;
-                point_result.detail[winner_seat].point_from_agari += winner_point;
-                break;
+                for(auto meld : round_result.states[winner_seat].melds){
+                    if(meld.tile == chicken || meld.tile == black_chicken || meld.tile == round_chicken){
+                        return 0;
+                    }
+                    if(meld.type != MeldType::Pon){
+                        return 0;
+                    }
+                }
+                return 1;
+            };
+            winner_point += config_.allow_no_chicken_no_kan && no_chicken_no_kan() ? config_.half_same_color_point : 0;
+            switch(round_result.win_type){
+                case WinType::Tsumo:
+                    for(int i = 0; i < 4; i++){
+                        if(i != winner_seat){
+                            point_result.point_to_others[i][winner_seat] += winner_point;
+                            point_result.detail[winner_seat].point_from_agari += winner_point;
+                        }
+                    }
+                    break;
+                case WinType::Ron: {
+                    int discarder_seat = round_result.discarder_seat;
+                    point_result.point_to_others[discarder_seat][winner_seat] += winner_point;
+                    point_result.detail[winner_seat].point_from_agari += winner_point;
+                    break;
+                }
+                default:
+                    return PointResult{};
             }
-            default:
-                return PointResult{};
         }
 
         //conclusion

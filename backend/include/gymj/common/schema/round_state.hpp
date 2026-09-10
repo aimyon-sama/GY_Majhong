@@ -40,12 +40,16 @@ struct RoundResult{
     bool has_winner = 0; // 0 -> no winner
     int winner_seat = -1; // no winner -> -1
     int discarder_seat = -1;// tsumo -> -1
-    Tile win_tile;
-    WinType win_type;
-    WinDetail detail;
+    Tile win_tile = null_tile;
+    WinType win_type = WinType::NoWinner;
+    WinDetail detail = WinDetail::NoWinner;
     std::array<PlayerTileState, 4> states;
     std::optional<DashChicken> one_sou;
     std::optional<DashChicken> eight_pin;
+    // In turn order; winner_seat remains the first winner for single-win callers.
+    std::vector<int> winner_seats;
+    Tile round_chicken = null_tile;
+    std::optional<Tile> chicken_indicator;
 };
 
 enum class RoundStage{
@@ -73,6 +77,51 @@ struct RoundState{
     int acting_player = -1; // -1 -> no player acting
     std::optional<PlayerAction> pending_action;
     DiscardDetail discard_detail = DiscardDetail::None;
+    std::uint64_t seq = 0;
+    int tiles_remaining = 0;
+    std::array<std::optional<PlayerAction>, 4> claims;
+};
+
+enum class RoundEventType{
+    RoundStarted,
+    InitialHands,
+    PlayerDraw,
+    PlayerDiscard,
+    ClaimSubmitted,
+    MeldDeclared,
+    AddKanProposed,
+    PlayerWin,
+    RoundEnded,
+    PointsCalculated,
+    ChickenRevealed
+};
+
+// Authoritative events contain hidden tiles; filter them before sending to clients.
+struct RoundEvent{
+    RoundEventType type = RoundEventType::RoundStarted;
+    std::uint64_t seq = 0;
+    int player_seat = -1;
+    int from_seat = -1;
+    std::optional<Tile> tile;
+    std::vector<Tile> tiles;
+    std::optional<PlayerAction> action;
+    DiscardDetail discard_detail = DiscardDetail::None;
+};
+
+struct RoundTransition{
+    bool accepted = false;
+    std::string error;
+    std::uint64_t seq_before = 0;
+    std::uint64_t seq_after = 0;
+    RoundStage stage_before = RoundStage::NotActive;
+    RoundStage stage_after = RoundStage::NotActive;
+    int actor_before = -1;
+    int actor_after = -1;
+    std::vector<RoundEvent> events;
+    std::array<std::vector<PlayerAction>, 4> available_actions;
+    bool round_ended = false;
+    std::optional<RoundResult> round_result;
+    std::optional<PointResult> point_result;
 };
 
 struct RoundConfig {

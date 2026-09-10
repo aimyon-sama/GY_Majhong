@@ -283,10 +283,37 @@ void test_calculate_points_derives_tenpai_from_round_result(){
 
     const PointResult result = engine.calculate_points(round, p(9));
 
-    require(result.delta_result[0] == 6, "tenpai seat 0 should receive noten payments");
-    require(result.delta_result[1] == 6, "tenpai seat 1 should receive noten payments");
-    require(result.delta_result[2] == -6, "noten seat 2 should pay tenpai seats");
-    require(result.delta_result[3] == -6, "noten seat 3 should pay tenpai seats");
+    // Chicken tiles do not affect a draw: each noten seat pays three shape points
+    // to each tenpai seat, and tenpai seats do not pay one another.
+    require(result.delta_result == std::array<int, 4>{6, 6, -6, -6},
+            "draw should settle only hand-shape payments");
+    require(result.point_to_others[0][1] == 0 && result.point_to_others[1][0] == 0,
+            "tenpai seats should not pay one another on a draw");
+    for(int seat = 0; seat < 4; ++seat){
+        require(result.detail[seat].point_from_chicken == 0 && result.detail[seat].point_from_kan == 0,
+                "draw must not include chicken or kan points");
+        require(result.detail[seat].point_from_tenpai == result.delta_result[seat],
+                "draw delta should consist entirely of hand-shape payments");
+    }
+}
+
+void test_winner_pays_a_nonwinning_tenpai_players_chicken(){
+    auto engine = make_engine();
+    RoundResult round{};
+    round.has_winner = true;
+    round.winner_seat = 0;
+    round.win_type = gymj::common::WinType::Tsumo;
+    round.detail = WinDetail::Simple;
+    round.win_tile = p(5);
+    round.states[0].hand = {m(1), m(2), m(3), m(4), m(5), m(6), s(2), s(3), s(4), p(2), p(3), p(4), p(5)};
+    round.states[1].hand = {m(1), m(2), m(3), m(4), m(5), m(6), s(1), s(2), s(3), p(2), p(3), p(4), p(5)};
+    round.states[2].hand = {m(1), m(1), m(2), m(2), m(3), m(4), m(5), s(2), s(3), s(5), p(2), p(4), p(6)};
+    round.states[3].hand = round.states[2].hand;
+    const auto result = engine.calculate_points(round, gymj::common::null_tile);
+    for(const int payer : {0, 2, 3}){
+        require(result.point_to_others[payer][1] == PointRuleConfig{}.hand_chicken_point,
+                "derived tenpai status must make winner A and seats C/D pay B's chicken");
+    }
 }
 
 }
@@ -302,6 +329,7 @@ int main(){
         test_resolve_claims_prioritizes_ron_and_multi_ron_config();
         test_resolve_claims_picks_nearest_non_win_claim();
         test_calculate_points_derives_tenpai_from_round_result();
+        test_winner_pays_a_nonwinning_tenpai_players_chicken();
     }catch(const std::exception& ex){
         std::cerr << "rule_engine_tests failed: " << ex.what() << '\n';
         return EXIT_FAILURE;
