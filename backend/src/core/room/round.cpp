@@ -87,7 +87,6 @@ RoundTransition Round::accept(RoundTransition transition){
     transition.available_actions = available_actions();
     for(auto& event : transition.events){
         event.seq = state_.seq;
-        events_.push_back(event);
     }
     return transition;
 }
@@ -106,17 +105,13 @@ void Round::emit(RoundTransition& transition, RoundEventType type, int seat,
 }
 
 RoundTransition Round::start(){
-    // 生成三门数牌各四张，再用本局的随机数引擎洗牌。
+    // 牌山生成和洗牌由 Wall 负责，Round 只负责随后发牌和推进状态。
     const auto error = start_error();
     if(!error.empty()){
         return reject(error);
     }
-    std::array<Tile, Wall::tile_count> tiles{};
-    for(int i = 0; i < Wall::tile_count; ++i){
-        tiles[i] = tile_from_index(i / 4);
-    }
-    std::shuffle(tiles.begin(), tiles.end(), rng_ ? *rng_ : owned_rng_);
-    return start(tiles);
+    wall_.init(rng_ ? rng_ : &owned_rng_);
+    return deal_initial_hands();
 }
 
 RoundTransition Round::start(const std::array<Tile, Wall::tile_count>& tiles){
@@ -133,9 +128,12 @@ RoundTransition Round::start(const std::array<Tile, Wall::tile_count>& tiles){
         }
     }
 
-    auto transition = transition_before();
-    initial_wall_ = tiles;
     wall_.init(tiles);
+    return deal_initial_hands();
+}
+
+RoundTransition Round::deal_initial_hands(){
+    auto transition = transition_before();
     // 从庄家开始，按座位逐张发牌，共发十三轮，庄家的第十四张由摸牌接口取得。
     for(int i = 0; i < 13; ++i){
         for(int offset = 0; offset < 4; ++offset){
@@ -145,6 +143,7 @@ RoundTransition Round::start(const std::array<Tile, Wall::tile_count>& tiles){
     state_.stage = RoundStage::WaitingDraw;
     state_.acting_player = config_.dealer_seat;
     emit(transition, RoundEventType::RoundStarted, config_.dealer_seat);
+    transition.events.back().start_info = RoundStartInfo{config_, players_};
     for(int seat = 0; seat < 4; ++seat){
         emit(transition, RoundEventType::InitialHands, seat);
         transition.events.back().tiles = state_.states[seat].hand;
@@ -397,6 +396,7 @@ void Round::finish(RoundTransition& transition, const std::vector<int>& winners,
     state_.discard_detail = DiscardDetail::None;
     pending_dash_chicken_ = false;
     emit(transition, RoundEventType::RoundEnded);
+    const auto ended_index = transition.events.size() - 1;
 
     // 有剩余牌时从正常摸牌端取一张作指示牌；同花色点数加一，九回到一。
     // 指示牌独立记录，不属于任何玩家；空牌山不翻鸡，round_chicken 保持空牌。
@@ -407,6 +407,7 @@ void Round::finish(RoundTransition& transition, const std::vector<int>& winners,
         result_->round_chicken = Tile{indicator.type, static_cast<std::uint8_t>(indicator.rank % 9 + 1)};
         emit(transition, RoundEventType::ChickenRevealed, -1, indicator);
     }
+    transition.events[ended_index].round_result = result_;
 }
 
 RoundTransition Round::handle_timeout(int seat){
@@ -443,6 +444,7 @@ RoundTransition Round::settle(){
     point_result_ = rule_engine_.calculate_points(*result_, round_chicken);
     emit(transition, RoundEventType::PointsCalculated, -1,
          round_chicken == null_tile ? std::nullopt : std::optional<Tile>{round_chicken});
+    transition.events.back().point_result = point_result_;
     return accept(std::move(transition));
 }
 

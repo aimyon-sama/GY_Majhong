@@ -15,7 +15,7 @@ public:
                    std::mt19937* rng = nullptr);
 
     common::RoundTransition start();
-    // Physical stack order, also usable for deterministic replay and tests.
+    // Physical stack order for deterministic fixtures.
     common::RoundTransition start(const std::array<common::Tile, Wall::tile_count>& tiles);
     common::RoundTransition draw_for_current_player();
     common::RoundTransition submit_action(int seat, common::PlayerAction action);
@@ -27,14 +27,13 @@ public:
     const common::RoundState& state() const noexcept { return state_; }
     const common::RoundConfig& config() const noexcept { return config_; }
     const std::array<common::PlayerInfo, 4>& players() const noexcept { return players_; }
-    const std::array<common::Tile, Wall::tile_count>& initial_wall() const noexcept { return initial_wall_; }
-    const std::vector<common::RoundEvent>& events() const noexcept { return events_; }
     const std::optional<common::RoundResult>& result() const noexcept { return result_; }
     const std::optional<common::PointResult>& point_result() const noexcept { return point_result_; }
     std::array<std::vector<common::PlayerAction>, 4> available_actions() const;
 
 private:
     std::string start_error() const;
+    common::RoundTransition deal_initial_hands();
     common::RoundTransition transition_before() const;
     common::RoundTransition reject(const std::string& error) const;
     common::RoundTransition accept(common::RoundTransition transition);
@@ -54,12 +53,10 @@ private:
     std::mt19937 owned_rng_;
     rule::RuleEngine rule_engine_;
     Wall wall_;
-    std::array<common::Tile, Wall::tile_count> initial_wall_{};
     common::RoundState state_;
     bool pending_dash_chicken_ = false;
     std::optional<common::RoundResult> result_;
     std::optional<common::PointResult> point_result_;
-    std::vector<common::RoundEvent> events_;
 };
 }
 

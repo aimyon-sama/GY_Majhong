@@ -1,4 +1,5 @@
 #include <array>
+#include <random>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -94,6 +95,17 @@ void test_empty_wall_after_all_tiles_are_drawn(){
     require(wall.remaining() == 0, "empty wall should report zero remaining tiles");
 }
 
+void test_seeded_initialization_matches_draw_order(){
+    Wall first, second;
+    std::mt19937 first_rng{123}, second_rng{123};
+    first.init(&first_rng);
+    second.init(&second_rng);
+    require(first_rng == second_rng, "initialization should consume randomness consistently");
+    for(int i = 0; i < Wall::tile_count; ++i){
+        require(first.draw_tile() == second.draw_tile(), "same seed should reproduce every draw");
+    }
+}
+
 }
 
 int main(){
@@ -102,6 +114,7 @@ int main(){
         test_kan_draw_uses_tail_stack_order();
         test_head_and_tail_draws_do_not_overlap();
         test_empty_wall_after_all_tiles_are_drawn();
+        test_seeded_initialization_matches_draw_order();
     }catch(const std::exception& ex){
         std::cerr << "wall_tests failed: " << ex.what() << '\n';
         return EXIT_FAILURE;

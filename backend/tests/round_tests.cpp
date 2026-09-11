@@ -389,7 +389,10 @@ void test_seeded_start_and_wall_validation(){
     config.seed = (std::uint64_t{1} << 40) + 17;
     Round first{config}, second{config};
     require(first.start().accepted && second.start().accepted, "owned generators should work");
-    require(first.initial_wall() == second.initial_wall(), "same seed should reproduce the wall");
+    for(int seat = 0; seat < 4; ++seat){
+        require(first.state().states[seat].hand == second.state().states[seat].hand,
+                "same seed should reproduce initial hands");
+    }
     require(first.state().tiles_remaining == 56, "dealing should leave 56 tiles");
 
     Round invalid{config};
@@ -398,7 +401,8 @@ void test_seeded_start_and_wall_validation(){
     require(!invalid.start(tiles).accepted, "invalid tile should reject the wall");
     tiles.fill(m(1));
     require(!invalid.start(tiles).accepted, "too many copies should reject the wall");
-    require(invalid.state().seq == 0 && invalid.events().empty(), "invalid wall should not mutate round");
+    require(invalid.state().seq == 0 && invalid.state().stage == RoundStage::NotActive,
+            "invalid wall should not mutate round");
     require(invalid.start().accepted, "a valid retry should remain possible");
     config = config_with_dealer(-1);
     Round invalid_dealer{config};
@@ -415,9 +419,9 @@ void test_rejected_actions_and_timeouts(){
     require(!round.settle().accepted, "inactive round must reject settlement");
     require(round.start().accepted && round.draw_for_current_player().accepted, "round should draw");
     const auto before = round.state();
-    const auto event_count = round.events().size();
     for(const int seat : {-1, 4, 1}){
-        require(!round.submit_action(seat, {PlayerActionType::Discard, m(1)}).accepted,
+        const auto rejected = round.submit_action(seat, {PlayerActionType::Discard, m(1)});
+        require(!rejected.accepted && rejected.events.empty(),
                 "invalid or non-acting seats must not discard");
         require(!round.handle_timeout(seat).accepted, "non-acting timeout must be rejected");
     }
@@ -425,8 +429,7 @@ void test_rejected_actions_and_timeouts(){
             "invalid tile must be rejected");
     require(!round.submit_action(0, {PlayerActionType::None, m(1)}).accepted,
             "unsupported action must be rejected");
-    require(round.state().seq == before.seq && round.events().size() == event_count,
-            "rejections must not advance the sequence or event log");
+    require(round.state().seq == before.seq, "rejections must not advance the sequence");
     require(round.state().states[0].hand == before.states[0].hand,
             "rejections must not mutate hands");
     const auto transition = round.handle_timeout(0);
@@ -811,11 +814,32 @@ void test_last_tile_tsumo_has_no_chicken_reveal(){
     check_conservation(round);
 }
 
+void test_start_reuses_wall_random_initialization(){
+    std::mt19937 expected_rng{123456}, actual_rng{123456};
+    Wall wall;
+    wall.init(&expected_rng);
+    Round round{config_with_dealer(0), players(), &actual_rng};
+    require(round.start().accepted, "random round should start");
+    for(int i = 0; i < 13; ++i){
+        for(int seat = 0; seat < 4; ++seat){
+            require(round.state().states[seat].hand[i] == wall.draw_tile(),
+                    "round should deal in Wall's shuffled order");
+        }
+    }
+    require(round.draw_for_current_player().accepted, "round should draw after dealing");
+    require(round.state().states[0].draw_buffer == wall.draw_tile(),
+            "round should continue drawing from the same shuffled wall");
+    require(actual_rng == expected_rng, "round start should consume exactly one Wall initialization");
+    require(!round.start().accepted && actual_rng == expected_rng,
+            "repeated start must not consume any further randomness");
+}
+
 }
 
 int main(){
     try{
         test_start_deals_initial_hands_and_emits_events();
+        test_start_reuses_wall_random_initialization();
         test_start_rejects_repeated_call_without_mutation();
         test_start_rejects_invalid_four_player_configuration();
         test_draw_before_start_is_rejected_without_mutation();

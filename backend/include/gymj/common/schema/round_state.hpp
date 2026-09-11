@@ -96,6 +96,14 @@ enum class RoundEventType{
     ChickenRevealed
 };
 
+struct RoundConfig {
+    int dealer_seat = 0;
+    int player_count = 4;
+    int action_timeout_ms = 8000;
+    std::uint64_t seed = 0;
+    RuleConfig rule;
+};
+
 // Authoritative events contain hidden tiles; filter them before sending to clients.
 struct RoundEvent{
     RoundEventType type = RoundEventType::RoundStarted;
@@ -122,14 +130,6 @@ struct RoundTransition{
     bool round_ended = false;
     std::optional<RoundResult> round_result;
     std::optional<PointResult> point_result;
-};
-
-struct RoundConfig {
-    int dealer_seat = 0;
-    int player_count = 4;
-    int action_timeout_ms = 8000;
-    std::uint64_t seed = 0;
-    RuleConfig rule;
 };
 
 }
