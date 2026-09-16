@@ -143,7 +143,6 @@ RoundTransition Round::deal_initial_hands(){
     state_.stage = RoundStage::WaitingDraw;
     state_.acting_player = config_.dealer_seat;
     emit(transition, RoundEventType::RoundStarted, config_.dealer_seat);
-    transition.events.back().start_info = RoundStartInfo{config_, players_};
     for(int seat = 0; seat < 4; ++seat){
         emit(transition, RoundEventType::InitialHands, seat);
         transition.events.back().tiles = state_.states[seat].hand;
@@ -407,7 +406,6 @@ void Round::finish(RoundTransition& transition, const std::vector<int>& winners,
         result_->round_chicken = Tile{indicator.type, static_cast<std::uint8_t>(indicator.rank % 9 + 1)};
         emit(transition, RoundEventType::ChickenRevealed, -1, indicator);
     }
-    transition.events[ended_index].round_result = result_;
 }
 
 RoundTransition Round::handle_timeout(int seat){
@@ -444,7 +442,6 @@ RoundTransition Round::settle(){
     point_result_ = rule_engine_.calculate_points(*result_, round_chicken);
     emit(transition, RoundEventType::PointsCalculated, -1,
          round_chicken == null_tile ? std::nullopt : std::optional<Tile>{round_chicken});
-    transition.events.back().point_result = point_result_;
     return accept(std::move(transition));
 }
 

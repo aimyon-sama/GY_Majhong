@@ -13,6 +13,10 @@ struct PlayerInfo{
     std::string player_name;
 };
 
+bool operator ==(const PlayerInfo l, const PlayerInfo r) {
+    return l.player_name == r.player_name;
+}
+
 struct PlayerTileState{
     PlayerTileState(){
         river.reserve(20);
