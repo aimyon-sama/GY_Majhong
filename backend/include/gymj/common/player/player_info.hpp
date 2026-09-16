@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <cstdint>
 
 #include <gymj/common/schema/tile.hpp>
 
@@ -11,10 +12,12 @@ namespace gymj::common{
 
 struct PlayerInfo{
     std::string player_name;
+    // 首次入座时由后端分配，只用于会话识别；昵称可重复，界面不展示此 ID。
+    std::uint64_t id = 0;
 };
 
-bool operator ==(const PlayerInfo l, const PlayerInfo r) {
-    return l.player_name == r.player_name;
+inline bool operator ==(const PlayerInfo& l, const PlayerInfo& r) noexcept {
+    return l.id == r.id;
 }
 
 struct PlayerTileState{

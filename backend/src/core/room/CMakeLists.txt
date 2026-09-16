@@ -15,7 +15,6 @@ target_link_libraries(gymj_core_room
     PUBLIC
         gymj::core_rules
         gymj::common
-        gymj::storage_replay
 )
 
 target_compile_features(gymj_core_room

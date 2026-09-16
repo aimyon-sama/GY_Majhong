@@ -67,7 +67,7 @@ RoundTransition Round::transition_before() const{
 }
 
 RoundTransition Round::reject(const std::string& error) const{
-    // 失败时仅返回错误和当前合法动作，不推进序号，也不追加牌谱事件。
+    // 失败时仅返回错误和当前合法动作，不推进序号，也不产生状态变化事件。
     auto transition = transition_before();
     transition.error = error;
     transition.available_actions = available_actions();

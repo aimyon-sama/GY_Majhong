@@ -92,3 +92,8 @@ add_test(
     NAME gymj_round_tests
     COMMAND gymj_round_tests
 )
+
+add_executable(gymj_table_tests table_tests.cpp)
+target_link_libraries(gymj_table_tests PRIVATE gymj::core_room)
+target_compile_features(gymj_table_tests PRIVATE cxx_std_20)
+add_test(NAME gymj_table_tests COMMAND gymj_table_tests)
