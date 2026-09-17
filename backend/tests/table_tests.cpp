@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
 #include <string>
+
+#include <nlohmann/json.hpp>
 
 namespace {
 using namespace gymj::common;
@@ -15,6 +18,17 @@ using namespace std::chrono_literals;
 
 void require(bool value, const std::string& message) {
     if (!value) throw std::runtime_error(message);
+}
+
+std::vector<nlohmann::json> read_replay(const Table& table) {
+    require(table.replay().error().empty(), "replay must have no storage errors");
+    std::ifstream file(table.replay().path(), std::ios::binary);
+    require(file.is_open(), "replay file exists while table is alive");
+    std::vector<nlohmann::json> entries;
+    std::string line;
+    while (std::getline(file, line)) entries.push_back(nlohmann::json::parse(line));
+    require(!file.bad(), "replay read succeeds");
+    return entries;
 }
 
 Tile m(int rank) { return {TileType::Man, static_cast<std::uint8_t>(rank)}; }
@@ -130,6 +144,16 @@ void test_start_and_visibility() {
     Fixture f;
     const auto started = f.table.start(f.now);
     require(started.accepted && started.deliveries.size() == 8, "start and draw each reach four players");
+    const auto log = read_replay(f.table);
+    require(log.size() == 4 && log[0]["type"] == "table" && log[0]["version"] == 1,
+        "one header, round metadata, initial deal and dealer draw are flushed");
+    require(log[1]["round_id"] == 1 && log[1]["players"].size() == 4, "round metadata recorded");
+    require(log[2]["events"].size() == 5, "initial events recorded once, not once per recipient");
+    for (int seat = 0; seat < 4; ++seat) {
+        require(log[2]["events"][seat + 1]["tiles"].size() == 13, "all initial hands retained in replay");
+    }
+    require(log[3]["events"][0]["tile"] == tile_to_string(*f.view().own_tiles.draw_buffer),
+        "authoritative dealer draw retained");
     for (const auto& delivery : started.deliveries) {
         require(delivery.recipient_id == f.players[delivery.view.self_seat].id, "routing maps to identity");
         require(!delivery.view.round_result, "live snapshot has no full result");
@@ -223,12 +247,30 @@ void test_parallel_claims_and_settlement() {
     auto view = f.view();
     require(view.table_stage == TableStage::RoundFinished && view.point_result, "win automatically settles");
     require(view.round_result->winner_seats == std::vector<int>({1, 2}), "both winners retained");
+    const auto log = read_replay(f.table);
+    const auto& finished = log.back();
+    require(finished["type"] == "round_finished" && finished["round_result"]["winner_seats"]
+        == std::vector<int>({1, 2}), "replay retains multi-ron winners");
+    require(finished["point_result"]["delta_result"] == view.point_result->delta_result
+        && finished["point_result"]["point_to_others"] == view.point_result->point_to_others
+        && finished["total_points"] == view.total_points, "replay records full settlement and totals");
+    require(finished["round_result"]["chicken_indicator"]
+        == tile_to_string(*view.round_result->chicken_indicator), "revealed chicken retained");
+    bool recorded_claim = false;
+    for (const auto& entry : log) {
+        if (!entry.contains("events")) continue;
+        for (const auto& event : entry["events"]) {
+            if (event["type"] == "ClaimSubmitted") recorded_claim = true;
+        }
+    }
+    require(recorded_claim, "unfiltered claim choices retained");
     require(view.total_points[1] > 0 && view.total_points[2] > 0, "winning points accumulated");
     require(std::accumulate(view.total_points.begin(), view.total_points.end(), std::int64_t{0}) == 0,
         "total scores zero-sum");
     const auto settled_seq = view.table_seq;
     require(f.table.submit(f.players[1], first, f.now).duplicate, "winning request retries after settlement");
     require(f.table.tick(f.now + 1s).deliveries.empty(), "settled tick does nothing");
+    require(read_replay(f.table) == log, "duplicate winning request and idle tick do not append");
     require(f.view().table_seq == settled_seq && f.view().total_points == view.total_points,
         "settlement only counted once");
     for (int seat = 0; seat < 4; ++seat) {
@@ -278,6 +320,12 @@ void test_concealed_kan_visibility() {
     require(f.view().own_tiles.melds[0].tile == s(9), "owner sees concealed kan");
     require(f.view(1).seats[0].melds[0].tile == null_tile, "opponent snapshot hides concealed kan");
     require(f.view().own_tiles.draw_buffer == m(9), "kan replacement draw automatic");
+    const auto log = read_replay(f.table);
+    require(log[log.size() - 2]["events"][0]["type"] == "MeldDeclared"
+        && log[log.size() - 2]["events"][0]["tile"] == "9s"
+        && log[log.size() - 2]["events"][0]["action"]["type"] == "SelfKan",
+        "replay retains concealed kan tile and action");
+    require(log.back()["events"][0]["tile"] == "9m", "replay retains replacement draw");
     for (const auto& delivery : result.deliveries) {
         if (delivery.view.self_seat == 0) continue;
         for (const auto& event : delivery.events) {
@@ -291,10 +339,12 @@ void test_concealed_kan_visibility() {
 
 void test_failed_start_is_transactional() {
     Fixture f;
+    const auto before = read_replay(f.table);
     const auto seq = f.view().table_seq;
     auto tiles = wall_with({});
     tiles[0] = null_tile;
     require(!f.table.start(tiles, f.now).accepted, "invalid wall rejected");
+    require(read_replay(f.table) == before, "rejected start adds no replay round");
     require(f.view().round_id == 0 && f.view().table_seq == seq
         && f.view().round_stage == RoundStage::NotActive,
         "failed start leaves no partial round");
@@ -305,6 +355,7 @@ void test_failed_start_is_transactional() {
 void test_options_and_ids_across_tables() {
     Fixture first;
     Table other{RuleConfig{}, TableOptions{3, 250, 0}};
+    require(other.replay().path() != first.table.replay().path(), "tables own distinct replay files");
     std::array<PlayerInfo, 4> players;
     for (auto& player : players) {
         player = *other.join(PlayerInfo{"same name"}).assigned_player;
@@ -334,6 +385,8 @@ void test_timeout_only_rounds_and_bounded_request_cache() {
     // 淘汰回执后仍拒绝旧请求；连续运行多局验证自动摸切、流局和累计计分。
     Fixture f;
     f.table.start(f.now);
+    const auto initial_log = read_replay(f.table);
+    const auto replay_path = f.table.replay().path();
     const auto earliest = f.command(0, PlayerActionType::Discard, null_tile);
     require(!f.table.submit(f.players[0], earliest, f.now).accepted, "invalid command rejected");
     for (int i = 0; i < 130; ++i) {
@@ -342,6 +395,7 @@ void test_timeout_only_rounds_and_bounded_request_cache() {
     }
     const auto old = f.table.submit(f.players[0], earliest, f.now);
     require(!old.accepted && !old.duplicate && old.error == "request id is too old", "evicted request cannot run again");
+    require(read_replay(f.table) == initial_log, "rejected commands do not append replay events");
     std::array<std::int64_t, 4> expected_points{};
     for (int round = 0; round < 8; ++round) {
         int ticks = 0;
@@ -355,11 +409,76 @@ void test_timeout_only_rounds_and_bounded_request_cache() {
         const auto settled = f.view();
         for (int seat = 0; seat < 4; ++seat) expected_points[seat] += settled.point_result->delta_result[seat];
         require(settled.total_points == expected_points, "each round contributes its points exactly once");
+        const auto log = read_replay(f.table);
+        require(f.table.replay().path() == replay_path, "next rounds reuse the same file");
+        require(log.back()["type"] == "round_finished" && log.back()["round_id"] == round + 1
+            && log.back()["total_points"] == expected_points, "timeout round settlement persisted");
+        require(log.back()["round_result"]["win_tile"].is_null()
+            && log.back()["round_result"]["chicken_indicator"].is_null(), "empty tiles use JSON null");
         if (round != 7) {
             for (const auto& player : f.players) f.table.ready(player);
             require(f.table.start(f.now).accepted, "subsequent timeout round starts");
         }
     }
+    int starts = 0;
+    int finishes = 0;
+    std::uint64_t round_id = 0;
+    std::uint64_t seq = 0;
+    std::uint64_t table_seq = 0;
+    for (const auto& entry : read_replay(f.table)) {
+        if (entry["type"] == "table") continue;
+        if (entry["type"] == "round_start") {
+            ++starts;
+            require(entry["round_id"] == ++round_id, "round IDs contiguous");
+            seq = 0;
+            continue;
+        }
+        require(entry["round_id"] == round_id && entry["seq_before"] == seq,
+            "transition belongs to current round and follows previous transition");
+        require(entry["seq_after"] == ++seq, "no duplicated or lost transitions");
+        const auto next_table_seq = entry["table_seq"].get<std::uint64_t>();
+        require(next_table_seq > table_seq, "table sequence increases across rounds");
+        table_seq = next_table_seq;
+        for (const auto& event : entry["events"]) require(event["seq"] == seq, "event order retained within batch");
+        if (entry["type"] == "round_finished") ++finishes;
+    }
+    require(starts == 8 && finishes == 8, "all eight rounds retained in a single file");
+}
+
+void test_replay_metadata_and_storage_errors() {
+    const std::string name = "name\"\\\n\t\r" + std::string(1, '\0') + "\xe9\xba\xbb\xe5\xb0\x86";
+    RuleConfig rule;
+    rule.game.allowMultiRon = false;
+    rule.score.kan_point = 7;
+    std::filesystem::path path;
+    {
+        Table table{rule, TableOptions{0, 100, 42, "replay/nested"}};
+        path = table.replay().path();
+        for (int seat = 0; seat < 4; ++seat) {
+            const auto player = *table.join(PlayerInfo{name}).assigned_player;
+            table.ready(player);
+        }
+        require(table.start(wall_with({}), Table::TimePoint{}).accepted, "fixed-wall game starts");
+        const auto log = read_replay(table);
+        require(log[1]["players"][0]["player_name"] == name, "JSON round-trips names and control characters");
+        require(log[1]["config"]["rule"]["game"]["allowMultiRon"] == false
+            && log[1]["config"]["rule"]["score"]["kan_point"] == 7, "custom rules captured");
+        require(log[1]["wall_source"] == "provided", "fixed wall not confused with seeded shuffle");
+        require(path.parent_path() == std::filesystem::path("replay/nested"), "configured replay directory used");
+    }
+    std::ifstream file(path, std::ios::binary);
+    std::string line;
+    int lines = 0;
+    while (std::getline(file, line)) {
+        require(nlohmann::json::accept(line), "interrupted round remains readable after table destruction");
+        ++lines;
+    }
+    require(lines == 4, "interrupted round retains every flushed batch");
+    bool threw = false;
+    try { Table invalid{rule, TableOptions{0, 100, 42, path}}; }
+    catch (const std::filesystem::filesystem_error&) { threw = true; }
+    require(threw, "storage path that is a file fails explicitly");
+    require(std::filesystem::file_size(path) > 0, "existing replay is not truncated on failure");
 }
 
 }
@@ -375,6 +494,7 @@ int main() {
         test_failed_start_is_transactional();
         test_options_and_ids_across_tables();
         test_timeout_only_rounds_and_bounded_request_cache();
+        test_replay_metadata_and_storage_errors();
     } catch (const std::exception& error) {
         std::cerr << "table_tests failed: " << error.what() << '\n';
         return EXIT_FAILURE;

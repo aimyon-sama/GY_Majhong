@@ -9,6 +9,7 @@
 #include <gymj/common/schema/table_state.hpp>
 #include <gymj/core/room/round.hpp>
 #include <gymj/common/player/player_info.hpp>
+#include <gymj/storage/replay/replay.hpp>
 
 namespace gymj::room{
 
@@ -40,6 +41,7 @@ public:
     TableUpdate tick(TimePoint now);
     // 未入座身份返回空值，合法身份只能读取自身视角。
     std::optional<common::PlayerView> snapshot(PlayerInfo player) const;
+    const storage::Replay& replay() const noexcept { return *replay_; }
 
 private:
     int find_seat(const PlayerInfo& player) const;
@@ -73,6 +75,7 @@ private:
     };
     std::array<SeatState, 4> seats_;
     std::unique_ptr<gymj::room::Round> round_;
+    std::unique_ptr<storage::Replay> replay_;
     std::mt19937 rng_;
     common::TableStage stage_ = common::TableStage::WaitingReady;
     std::uint64_t round_id_ = 0;

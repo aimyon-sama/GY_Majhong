@@ -163,28 +163,13 @@ Server prompt example:
 }
 ```
 
-## Replay Format Direction
+## Replay Format
 
-The internal replay format should be an append-only event log plus final metadata.
-
-```json
-{
-  "version": 1,
-  "rule": "custom-v1",
-  "roomId": "room-001",
-  "tableId": "table-001",
-  "players": ["p0", "p1", "p2", "p3"],
-  "initialWall": ["1m", "9p"],
-  "events": [
-    { "seq": 1, "type": "deal" },
-    { "seq": 2, "type": "draw", "seat": 0, "tile": "5s" },
-    { "seq": 3, "type": "discard", "seat": 0, "tile": "5s" }
-  ],
-  "finalScores": [31200, 21800, 25000, 22000]
-}
-```
-
-Keep this as the source of truth. If a Tenhou-like export is needed later, generate it from this internal replay format.
+`Table` owns a `Replay` writer and exports one append-only `.jsonl` file per table,
+containing every round's complete `RoundEvent` batches, results, point breakdowns,
+and cumulative scores. The default output directory is `replay/`, configurable
+through `TableOptions::replay_directory`. See [Replay Format v1](docs/replay.md)
+for the file schema, error handling, and JSON dependency setup.
 
 ## Initial Milestones
 

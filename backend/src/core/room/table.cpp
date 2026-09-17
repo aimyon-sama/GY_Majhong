@@ -27,6 +27,7 @@ std::uint64_t next_player_id() {
 void append_update(TableUpdate& out, TableUpdate next) {
     // 一次命令可能连带摸牌和结算，按发生顺序合并这些通知。
     out.table_seq = next.table_seq;
+    out.replay_error = next.replay_error;
     out.deliveries.insert(out.deliveries.end(),
         std::make_move_iterator(next.deliveries.begin()),
         std::make_move_iterator(next.deliveries.end()));
@@ -75,6 +76,7 @@ Table::Table(RuleConfig config, TableOptions options)
         : (static_cast<std::uint64_t>(random()) << 32) | random();
     std::seed_seq seeds{static_cast<std::uint32_t>(seed), static_cast<std::uint32_t>(seed >> 32)};
     rng_.seed(seeds);
+    replay_ = std::make_unique<storage::Replay>(options_.replay_directory);
 }
 
 int Table::find_seat(const PlayerInfo& player) const {
@@ -89,6 +91,7 @@ int Table::find_seat(const PlayerInfo& player) const {
 TableUpdate Table::reject(const std::string& error) const {
     TableUpdate out;
     out.error = error;
+    out.replay_error = replay_->error();
     out.table_seq = table_seq_;
     return out;
 }
@@ -146,6 +149,7 @@ TableUpdate Table::publish() const {
     // 只为在线座位生成通知；断线玩家通过重连快照恢复状态。
     TableUpdate out;
     out.accepted = true;
+    out.replay_error = replay_->error();
     out.table_seq = table_seq_;
     for (int seat = 0; seat < 4; ++seat) {
         if (seats_[seat].is_seated && seats_[seat].connected) {
@@ -224,6 +228,10 @@ TableUpdate Table::start_impl(TimePoint now, const std::array<Tile, Wall::tile_c
     auto transition = tiles ? next_round->start(*tiles) : next_round->start();
     if (!transition.accepted) return reject(transition.error);
 
+    if (!replay_->start_round(round_id_ + 1, config, players, tiles != nullptr)) {
+        return reject("cannot start round: replay unavailable");
+    }
+
     rng_ = next_rng;
     round_ = std::move(next_round);
     ++round_id_;
@@ -277,6 +285,7 @@ TableUpdate Table::submit(PlayerInfo player, Command command, TimePoint now) {
         out.table_seq = receipt.table_seq;
         out.request_id = command.request_id;
         out.duplicate = true;
+        out.replay_error = replay_->error();
         return out;
     }
     if (command.request_id <= owner.last_request_id) return fail("request id is too old");
@@ -326,6 +335,8 @@ TableUpdate Table::consume(RoundTransition transition) {
         for (int seat = 0; seat < 4; ++seat) total_points_[seat] += transition.point_result->delta_result[seat];
         stage_ = TableStage::RoundFinished;
     }
+    // Persist full events once, before per-player filtering removes hidden tiles.
+    replay_->record(round_id_, table_seq_, transition, total_points_);
     auto out = publish();
     for (auto& delivery : out.deliveries) {
         delivery.events = visible_events(transition.events, delivery.view.self_seat);
@@ -338,6 +349,7 @@ TableUpdate Table::advance() {
     TableUpdate out;
     out.accepted = true;
     out.table_seq = table_seq_;
+    out.replay_error = replay_->error();
     while (round_ && stage_ == TableStage::Playing) {
         RoundTransition transition;
         if (round_->state().stage == RoundStage::WaitingDraw) transition = round_->draw_for_current_player();
@@ -360,6 +372,7 @@ TableUpdate Table::tick(TimePoint now) {
     TableUpdate out;
     out.accepted = true;
     out.table_seq = table_seq_;
+    out.replay_error = replay_->error();
     // 固定进入 tick 时的窗口；旧窗口结束后，不能继续超时处理新窗口的玩家。
     const auto prompt = prompt_id_;
     const auto expired = deadlines_;

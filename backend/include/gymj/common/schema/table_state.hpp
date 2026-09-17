@@ -2,6 +2,7 @@
 #define GYMJ_COMMON_TABLE_STATE_HPP
 
 #include <chrono>
+#include <filesystem>
 #include <gymj/common/schema/round_state.hpp>
 
 namespace gymj::common{
@@ -24,6 +25,7 @@ struct TableOptions {
     int dealer_seat = 0;
     int action_timeout_ms = 8000;
     std::optional<std::uint64_t> seed;
+    std::filesystem::path replay_directory = "replay";
 };
 
 // 所有玩家可见的座位信息；手牌仅公开数量，暗杠牌面由 Table 过滤。
@@ -74,6 +76,8 @@ struct Delivery {
 struct TableUpdate {
     bool accepted = false;
     std::string error;
+    // Storage diagnostics do not change whether an action was accepted.
+    std::string replay_error;
     bool duplicate = false; // 重复请求仅返回原回执，不再次生成消息或执行动作。
     std::uint64_t request_id = 0;
     std::uint64_t table_seq = 0;

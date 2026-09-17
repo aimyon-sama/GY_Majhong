@@ -163,28 +163,12 @@ scripts/                  构建、测试、导出和维护脚本。
 }
 ```
 
-## 牌谱格式方向
+## 牌谱格式
 
-内部牌谱格式应使用追加式事件日志，并在最终写入元信息。
-
-```json
-{
-  "version": 1,
-  "rule": "custom-v1",
-  "roomId": "room-001",
-  "tableId": "table-001",
-  "players": ["p0", "p1", "p2", "p3"],
-  "initialWall": ["1m", "9p"],
-  "events": [
-    { "seq": 1, "type": "deal" },
-    { "seq": 2, "type": "draw", "seat": 0, "tile": "5s" },
-    { "seq": 3, "type": "discard", "seat": 0, "tile": "5s" }
-  ],
-  "finalScores": [31200, 21800, 25000, 22000]
-}
-```
-
-内部牌谱格式应作为事实来源。如果后续需要接近天凤格式的导出，可以从内部牌谱转换生成。
+`Table` 持有 `Replay`，每桌生成一个追加式 `.jsonl` 文件，保存多个回合的完整
+`RoundEvent`、结局、小分明细和累计小分。默认输出到进程工作目录下的 `replay/`，
+可通过 `TableOptions::replay_directory` 配置。格式、错误处理和 JSON 依赖配置见
+[Replay Format v1](docs/replay.md)。
 
 ## 初始里程碑
 
