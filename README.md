@@ -81,11 +81,16 @@ Key responsibilities:
 
 - Tile representation.
 - Wall generation and draw order.
-- Game state transitions.
-- Legal action discovery.
-- Custom win checks.
-- Score settlement.
+- Round-state based legal action discovery.
+- Custom win checks and claim resolution.
+- Score settlement and tenpai-derived exhaustive-draw scoring.
 - Replay event generation.
+
+Implemented core modules:
+
+- `GameEngine`: checks tile-shape rules such as pon, kan, tsumo, ron, tenpai, and multi-ron configuration.
+- `PointEngine`: calculates custom point deltas from round results, chicken tiles, kan payments, and tenpai state.
+- `RuleEngine`: combines the current `RoundState` with game and point rules to produce legal player actions, resolve competing claims, and calculate final point results.
 
 ### Server
 
@@ -158,37 +163,39 @@ Server prompt example:
 }
 ```
 
-## Replay Format Direction
+## Replay Format
 
-The internal replay format should be an append-only event log plus final metadata.
-
-```json
-{
-  "version": 1,
-  "rule": "custom-v1",
-  "roomId": "room-001",
-  "tableId": "table-001",
-  "players": ["p0", "p1", "p2", "p3"],
-  "initialWall": ["1m", "9p"],
-  "events": [
-    { "seq": 1, "type": "deal" },
-    { "seq": 2, "type": "draw", "seat": 0, "tile": "5s" },
-    { "seq": 3, "type": "discard", "seat": 0, "tile": "5s" }
-  ],
-  "finalScores": [31200, 21800, 25000, 22000]
-}
-```
-
-Keep this as the source of truth. If a Tenhou-like export is needed later, generate it from this internal replay format.
+`Table` owns a `Replay` writer and exports one append-only `.jsonl` file per table,
+containing every round's complete `RoundEvent` batches, results, point breakdowns,
+and cumulative scores. The default output directory is `replay/`, configurable
+through `TableOptions::replay_directory`. See [Replay Format v1](docs/replay.md)
+for the file schema, error handling, and JSON dependency setup.
 
 ## Initial Milestones
 
-1. Implement a pure C++ command-line core that can simulate one complete game.
-2. Add rule tests for legal actions, win checks, response priority, and scoring.
-3. Add the WebSocket server and room/table/session lifecycle.
-4. Build the minimal browser client for lobby, table, prompts, and results.
-5. Export replay JSON and score files at game end.
-6. Add reconnect, timeout auto-play, and replay viewer.
+1. Implement core rule modules for action legality, win checks, claim priority, and scoring. Done for the current custom-rule surface.
+2. Keep expanding deterministic tests whenever rule details change.
+3. Implement a pure C++ round/table state machine that applies validated actions and emits replay events.
+4. Add the WebSocket server and room/table/session lifecycle.
+5. Build the minimal browser client for lobby, table, prompts, and results.
+6. Export replay JSON and score files at game end.
+7. Add reconnect, timeout auto-play, and replay viewer.
+
+## Backend Tests
+
+Configure and run the backend test suite from the repository root:
+
+```powershell
+cmake -S backend -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+Current test executables:
+
+- `gymj_game_engine_tests`: low-level tile-shape and win/tenpai checks.
+- `gymj_rule_engine_tests`: `RoundState` to legal action generation, draw-buffer handling, claim resolution, and point calculation handoff.
+- `gymj_point_engine_tests`: custom point settlement details.
 
 ## Development Notes
 

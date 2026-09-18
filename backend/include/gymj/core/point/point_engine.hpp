@@ -1,0 +1,37 @@
+#ifndef GYMJ_CORE_POINT_ENGINE_HPP
+#define GYMJ_CORE_POINT_ENGINE_HPP
+
+#include <array>
+#include <vector>
+
+#include <gymj/common/schema/tile.hpp>
+#include <gymj/common/rules/rule_config.hpp>
+#include <gymj/common/schema/point.hpp>
+#include <gymj/common/schema/round_state.hpp>
+#include <gymj/common/player/player_info.hpp>
+
+namespace gymj::rule{
+    
+using gymj::common::Tile;    
+using gymj::common::Meld;
+using gymj::common::PointRuleConfig;
+using gymj::common::PointResult;
+using gymj::common::RoundResult;
+using gymj::common::PlayerTileState;
+using gymj::common::WinDetail;
+
+class PointEngine{
+public:
+    explicit PointEngine(PointRuleConfig config);
+    PointResult calculate(const RoundResult& round_result, const Tile round_chicken, const std::array<bool, 4>& tenpai_seats);
+    bool can_simple_ron(const PlayerTileState& player_state) const;
+private:
+    int same_color_count(const PlayerTileState& player_state) const;
+    int half_same_color_count(const PlayerTileState& player_state) const;
+    int calculate_tile_point(const PlayerTileState& player_state, const WinDetail& detail) const;
+    PointRuleConfig config_;
+};  
+  
+}
+
+#endif
