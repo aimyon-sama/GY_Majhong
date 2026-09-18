@@ -13,6 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(GYMJ_BUILD_TESTS "Build backend tests" ON)
 
+add_subdirectory(include/third_party)
 add_subdirectory(src)
 
 if(GYMJ_BUILD_TESTS)
