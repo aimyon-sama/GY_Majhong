@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GY Mahjong | 通信测试</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #202724; background: #f5f6f7; font: 14px/1.6 system-ui, sans-serif; }
+    main { max-width: 920px; margin: 40px auto; padding: 0 20px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #d6ddda; padding-bottom: 16px; }
+    h1 { font-size: 22px; margin: 0; }
+    #status { color: #626b68; white-space: nowrap; }
+    #status[data-state="open"] { color: #087e54; }
+    form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 24px 0; }
+    label { flex: 1 1 240px; min-width: 0; }
+    input { display: block; width: 100%; min-width: 0; margin-top: 6px; }
+    input, button { border: 1px solid #b9c4bf; border-radius: 4px; padding: 9px 12px; font: inherit; background: white; color: inherit; }
+    button { cursor: pointer; min-height: 42px; }
+    button[type="submit"] { background: #147852; border-color: #147852; color: white; }
+    button:disabled { opacity: .45; cursor: default; }
+    input:focus-visible, button:focus-visible { outline: 2px solid #167fab; outline-offset: 2px; }
+    .log-heading { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #d6ddda; padding: 16px 0; }
+    h2 { font-size: 15px; margin: 0; }
+    #log { height: 360px; overflow: auto; border: 1px solid #d6ddda; background: white; padding: 12px; font-family: Consolas, monospace; }
+    .entry { overflow-wrap: anywhere; white-space: pre-wrap; padding: 7px 0; border-bottom: 1px solid #edf0ee; }
+    .received { color: #086e4b; }
+    .error { color: #b33131; }
+    @media (max-width: 480px) { main { margin: 20px auto; padding: 0 12px; } h1 { font-size: 18px; } #log { height: 300px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header><h1>GY Mahjong · 通信测试</h1><span id="status" role="status">未连接</span></header>
+  <form id="connection-form">
+    <label>服务地址<input id="address" value="ws://127.0.0.1:8080" required spellcheck="false"></label>
+    <button id="connect" type="submit">连接</button>
+    <button id="disconnect" type="button" disabled>断开</button>
+  </form>
+  <form id="message-form">
+    <label>消息<input id="message" value="你好，C++ 服务端" maxlength="8000" required></label>
+    <button id="send" type="submit" disabled>发送</button>
+    <button id="ping" type="button" disabled>Ping</button>
+  </form>
+  <div class="log-heading"><h2>通信记录</h2><button id="clear" type="button">清空</button></div>
+  <div id="log" role="log" aria-label="通信记录" aria-live="polite"></div>
+</main>
+<script>
+  const byId = id => document.getElementById(id);
+  let socket = null;
+  function record(text, kind = '') {
+    const entry = document.createElement('div');
+    entry.className = 'entry ' + kind;
+    entry.textContent = new Date().toLocaleTimeString() + '  ' + text;
+    const log = byId('log');
+    log.append(entry);
+    while (log.children.length > 100) log.firstElementChild.remove();
+    log.scrollTop = log.scrollHeight;
+  }
+  function update(state) {
+    const opened = state === 'open';
+    byId('status').dataset.state = state;
+    byId('status').textContent = {open: '已连接', connecting: '连接中', closing: '断开中', closed: '未连接'}[state];
+    byId('connect').disabled = state !== 'closed';
+    byId('address').disabled = state !== 'closed';
+    byId('disconnect').disabled = !opened && state !== 'connecting';
+    byId('send').disabled = !opened;
+    byId('ping').disabled = !opened;
+  }
+  byId('connection-form').onsubmit = event => {
+    event.preventDefault();
+    if (socket && socket.readyState !== WebSocket.CLOSED) return;
+    let current;
+    try { current = new WebSocket(byId('address').value.trim()); }
+    catch (error) { record(error.message, 'error'); return; }
+    socket = current;
+    update('connecting');
+    current.onopen = () => { if (socket === current) { update('open'); record('连接成功'); } };
+    current.onmessage = event => { if (socket === current) record('收到  ' + event.data, 'received'); };
+    current.onerror = () => { if (socket === current) record('连接错误', 'error'); };
+    current.onclose = event => {
+      if (socket !== current) return;
+      update('closed');
+      record('连接关闭，状态码 ' + event.code);
+    };
+  };
+  function send(message) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const text = JSON.stringify(message);
+    socket.send(text);
+    record('发送  ' + text);
+  }
+  byId('message-form').onsubmit = event => {
+    event.preventDefault();
+    send({type: 'echo', payload: byId('message').value});
+  };
+  byId('ping').onclick = () => send({type: 'ping'});
+  byId('disconnect').onclick = () => { update('closing'); socket?.close(1000, 'user disconnected'); };
+  byId('clear').onclick = () => byId('log').replaceChildren();
+</script>
+</body>
+</html>
