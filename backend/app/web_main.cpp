@@ -1,127 +1,61 @@
-#include <utility>
 #include <boost/asio.hpp>
 #include <boost/beast/core.hpp>
-#include <boost/beast/websocket.hpp>
+#include <gymj/server/gateway/ws_session.hpp>
 #include <nlohmann/json.hpp>
 
 #include <charconv>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
-#include <deque>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace net = boost::asio;
 namespace beast = boost::beast;
-namespace websocket = beast::websocket;
 using tcp = net::ip::tcp;
 using Json = nlohmann::json;
+using WsSession = gymj::server::gateway::WsSession;
 
 namespace {
 
-// All sessions and their callbacks run on the single io_context thread.
-class WsSession : public std::enable_shared_from_this<WsSession> {
-public:
-    explicit WsSession(tcp::socket socket) : ws_(std::move(socket)) {}
+void send(const WsSession::Ptr& session, Json message) {
+    session->send_text(message.dump());
+}
 
-    void run() {
-        ws_.read_message_max(64 * 1024);
-        ws_.set_option(websocket::stream_base::timeout::suggested(beast::role_type::server));
-        ws_.async_accept([self = shared_from_this()](beast::error_code ec) {
-            if (ec) return self->stop("handshake", ec);
-            self->read();
+void error(const WsSession::Ptr& session, const char* code) {
+    send(session, {{"type", "error"}, {"code", code}});
+}
+
+void on_message(WsSession::Ptr session, std::string text) {
+    Json message;
+    try {
+        message = Json::parse(text, [](int depth, Json::parse_event_t, Json&) {
+            if (depth > 32) throw std::invalid_argument("json_too_deep");
+            return true;
         });
+    } catch (const Json::exception&) {
+        return error(session, "invalid_json");
+    } catch (const std::invalid_argument&) {
+        return error(session, "json_too_deep");
     }
+    if (!message.is_object()) return error(session, "invalid_json");
+    const auto type = message.find("type");
+    if (type == message.end() || !type->is_string()) return error(session, "invalid_type");
 
-private:
-    websocket::stream<beast::tcp_stream> ws_;
-    beast::flat_buffer input_;
-    std::deque<std::string> outbox_;
-    std::size_t queued_bytes_ = 0;
-    bool stopped_ = false;
-
-    void read() {
-        if (stopped_) return;
-        ws_.async_read(input_, [self = shared_from_this()](beast::error_code ec, std::size_t) {
-            if (ec) return self->stop("read", ec);
-            const bool text_message = self->ws_.got_text();
-            auto text = beast::buffers_to_string(self->input_.data());
-            self->input_.consume(self->input_.size());
-            if (text_message) self->on_message(text);
-            else self->error("text_only");
-            self->read();
-        });
+    if (*type == "ping") {
+        send(session, {{"type", "pong"}});
+    } else if (*type == "echo") {
+        const auto payload = message.find("payload");
+        if (payload == message.end() || !payload->is_string()) return error(session, "invalid_payload");
+        send(session, {{"type", "echo"}, {"payload", *payload}});
+    } else {
+        error(session, "unknown_type");
     }
-
-    void on_message(const std::string& text) {
-        Json message;
-        try {
-            message = Json::parse(text, [](int depth, Json::parse_event_t, Json&) {
-                if (depth > 32) throw std::invalid_argument("json_too_deep");
-                return true;
-            });
-        } catch (const Json::exception&) {
-            return error("invalid_json");
-        } catch (const std::invalid_argument&) {
-            return error("json_too_deep");
-        }
-        if (!message.is_object()) return error("invalid_json");
-        const auto type = message.find("type");
-        if (type == message.end() || !type->is_string()) return error("invalid_type");
-
-        if (*type == "ping") {
-            send({{"type", "pong"}});
-        } else if (*type == "echo") {
-            const auto payload = message.find("payload");
-            if (payload == message.end() || !payload->is_string()) return error("invalid_payload");
-            send({{"type", "echo"}, {"payload", *payload}});
-        } else {
-            error("unknown_type");
-        }
-    }
-
-    void error(const char* code) { send({{"type", "error"}, {"code", code}}); }
-
-    void send(Json message) {
-        if (stopped_) return;
-        auto text = message.dump();
-        if (outbox_.size() >= 128 || queued_bytes_ + text.size() > 1024 * 1024) {
-            std::cerr << "Disconnecting slow client: send queue limit\n";
-            return stop("send", {});
-        }
-        const bool idle = outbox_.empty();
-        queued_bytes_ += text.size();
-        outbox_.push_back(std::move(text));
-        if (idle) write();
-    }
-
-    void write() {
-        ws_.text(true);
-        // The queue owns the buffer until this write's completion handler runs.
-        ws_.async_write(net::buffer(outbox_.front()),
-            [self = shared_from_this()](beast::error_code ec, std::size_t) {
-                if (ec) return self->stop("write", ec);
-                self->queued_bytes_ -= self->outbox_.front().size();
-                self->outbox_.pop_front();
-                if (!self->stopped_ && !self->outbox_.empty()) self->write();
-            });
-    }
-
-    void stop(const char* operation, beast::error_code ec) {
-        if (stopped_) return;
-        stopped_ = true;
-        if (ec && ec != websocket::error::closed && ec != net::error::operation_aborted) {
-            std::cerr << operation << ": " << ec.message() << '\n';
-        }
-        beast::error_code ignored;
-        beast::get_lowest_layer(ws_).socket().close(ignored);
-        // Do not clear outbox_: an outstanding write may still reference it.
-    }
-};
+}
 
 class Listener : public std::enable_shared_from_this<Listener> {
 public:
@@ -146,7 +80,8 @@ private:
                 });
                 return;
             }
-            std::make_shared<WsSession>(std::move(socket))->run();
+            std::make_shared<WsSession>(std::move(socket), on_message,
+                [](WsSession::Ptr, beast::error_code) {})->run();
             self->accept();
         });
     }
