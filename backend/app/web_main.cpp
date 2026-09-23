@@ -1,10 +1,10 @@
 #include <boost/asio.hpp>
 #include <boost/beast/core.hpp>
+#include <gymj/server/gateway/listener.hpp>
 #include <gymj/server/gateway/ws_session.hpp>
 #include <nlohmann/json.hpp>
 
 #include <charconv>
-#include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <iostream>
@@ -16,8 +16,8 @@
 
 namespace net = boost::asio;
 namespace beast = boost::beast;
-using tcp = net::ip::tcp;
 using Json = nlohmann::json;
+using Listener = gymj::server::gateway::Listener;
 using WsSession = gymj::server::gateway::WsSession;
 
 namespace {
@@ -57,36 +57,6 @@ void on_message(WsSession::Ptr session, std::string text) {
     }
 }
 
-class Listener : public std::enable_shared_from_this<Listener> {
-public:
-    Listener(net::io_context& ioc, std::uint16_t port)
-        : acceptor_(ioc, tcp::endpoint{net::ip::make_address("127.0.0.1"), port}), retry_(ioc) {}
-
-    std::uint16_t port() const { return acceptor_.local_endpoint().port(); }
-    void run() { accept(); }
-
-private:
-    tcp::acceptor acceptor_;
-    net::steady_timer retry_;
-
-    void accept() {
-        acceptor_.async_accept([self = shared_from_this()](beast::error_code ec, tcp::socket socket) {
-            if (ec == net::error::operation_aborted) return;
-            if (ec) {
-                std::cerr << "accept: " << ec.message() << '\n';
-                self->retry_.expires_after(std::chrono::milliseconds(250));
-                self->retry_.async_wait([self](beast::error_code retry_ec) {
-                    if (!retry_ec) self->accept();
-                });
-                return;
-            }
-            std::make_shared<WsSession>(std::move(socket), on_message,
-                [](WsSession::Ptr, beast::error_code) {})->run();
-            self->accept();
-        });
-    }
-};
-
 std::uint16_t parse_port(std::string_view text) {
     unsigned int port = 0;
     const auto result = std::from_chars(text.data(), text.data() + text.size(), port);
@@ -108,7 +78,7 @@ int main(int argc, char* argv[]) {
         signals.async_wait([&ioc](beast::error_code ec, int) {
             if (!ec) ioc.stop();
         });
-        auto listener = std::make_shared<Listener>(ioc, port);
+        auto listener = std::make_shared<Listener>(ioc, port, on_message);
         listener->run();
         std::cout << "WebSocket listening on ws://127.0.0.1:" << listener->port() << std::endl;
         ioc.run();

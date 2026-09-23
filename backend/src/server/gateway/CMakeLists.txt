@@ -1,4 +1,7 @@
-add_library(gymj_server_gateway STATIC ws_session.cpp)
+add_library(gymj_server_gateway STATIC
+    ws_session.cpp
+    listener.cpp
+)
 add_library(gymj::server_gateway ALIAS gymj_server_gateway)
 
 target_include_directories(gymj_server_gateway
