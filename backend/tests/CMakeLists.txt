@@ -97,3 +97,8 @@ add_executable(gymj_table_tests table_tests.cpp)
 target_link_libraries(gymj_table_tests PRIVATE gymj::core_room nlohmann_json::nlohmann_json)
 target_compile_features(gymj_table_tests PRIVATE cxx_std_20)
 add_test(NAME gymj_table_tests COMMAND gymj_table_tests)
+
+add_executable(gymj_protocol_tests protocol_tests.cpp)
+target_link_libraries(gymj_protocol_tests PRIVATE gymj::server_gateway)
+target_compile_features(gymj_protocol_tests PRIVATE cxx_std_20)
+add_test(NAME gymj_protocol_tests COMMAND gymj_protocol_tests)

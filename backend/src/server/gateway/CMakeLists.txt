@@ -1,6 +1,7 @@
 add_library(gymj_server_gateway STATIC
     ws_session.cpp
     listener.cpp
+    protocol.cpp
 )
 add_library(gymj::server_gateway ALIAS gymj_server_gateway)
 
@@ -9,7 +10,10 @@ target_include_directories(gymj_server_gateway
 )
 
 target_link_libraries(gymj_server_gateway
-    PUBLIC gymj::boost
+    PUBLIC
+        gymj::boost
+        gymj::common
+        nlohmann_json::nlohmann_json
 )
 
 target_compile_features(gymj_server_gateway PUBLIC cxx_std_20)
