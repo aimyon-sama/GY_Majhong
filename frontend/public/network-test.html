@@ -38,16 +38,30 @@
     <button id="disconnect" type="button" disabled>断开</button>
   </form>
   <form id="message-form">
-    <label>消息<input id="message" value="你好，C++ 服务端" maxlength="8000" required></label>
+    <label>协议 v1 JSON<input id="message" value='{"v":1,"type":"hello","nickname":"玩家"}' maxlength="8000" required spellcheck="false"></label>
     <button id="send" type="submit" disabled>发送</button>
     <button id="ping" type="button" disabled>Ping</button>
   </form>
+  <p>先发送 hello，再发送 join_room、ready 或 snapshot。服务端可能连续推送多条快照；会话令牌会保存到当前标签页，记录中会隐藏令牌。</p>
+  <p>
+    <button id="join" type="button" disabled>加入 room-001</button>
+    <button id="ready" type="button" disabled>准备</button>
+    <button id="snapshot" type="button" disabled>请求快照</button>
+    <button id="resume" type="button" disabled>恢复当前身份</button>
+  </p>
   <div class="log-heading"><h2>通信记录</h2><button id="clear" type="button">清空</button></div>
   <div id="log" role="log" aria-label="通信记录" aria-live="polite"></div>
 </main>
 <script>
   const byId = id => document.getElementById(id);
   let socket = null;
+  let serial = 0;
+  let sessionToken = null;
+  try { sessionToken = sessionStorage.getItem('gymj.sessionToken'); } catch {}
+  // 凭据只用于恢复身份，不出现在可复制的通信记录中。
+  function printable(message) {
+    return JSON.stringify(message, (key, value) => key === 'sessionToken' ? '[已隐藏]' : value);
+  }
   function record(text, kind = '') {
     const entry = document.createElement('div');
     entry.className = 'entry ' + kind;
@@ -66,6 +80,8 @@
     byId('disconnect').disabled = !opened && state !== 'connecting';
     byId('send').disabled = !opened;
     byId('ping').disabled = !opened;
+    for (const id of ['join', 'ready', 'snapshot']) byId(id).disabled = !opened;
+    byId('resume').disabled = !opened || !sessionToken;
   }
   byId('connection-form').onsubmit = event => {
     event.preventDefault();
@@ -76,7 +92,18 @@
     socket = current;
     update('connecting');
     current.onopen = () => { if (socket === current) { update('open'); record('连接成功'); } };
-    current.onmessage = event => { if (socket === current) record('收到  ' + event.data, 'received'); };
+    current.onmessage = event => {
+      if (socket !== current) return;
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'welcome') {
+          sessionToken = message.sessionToken;
+          try { sessionStorage.setItem('gymj.sessionToken', sessionToken); } catch {}
+          update('open');
+        }
+        record('收到  ' + printable(message), 'received');
+      } catch { record('收到无法解析的消息', 'error'); }
+    };
     current.onerror = () => { if (socket === current) record('连接错误', 'error'); };
     current.onclose = event => {
       if (socket !== current) return;
@@ -88,13 +115,18 @@
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
     const text = JSON.stringify(message);
     socket.send(text);
-    record('发送  ' + text);
+    record('发送  ' + printable(message));
   }
   byId('message-form').onsubmit = event => {
     event.preventDefault();
-    send({type: 'echo', payload: byId('message').value});
+    try { send(JSON.parse(byId('message').value)); }
+    catch { record('请输入合法的 JSON 对象', 'error'); }
   };
-  byId('ping').onclick = () => send({type: 'ping'});
+  byId('ping').onclick = () => send({v: 1, type: 'ping'});
+  for (const [id, type] of [['join', 'join_room'], ['ready', 'ready'], ['snapshot', 'snapshot']]) {
+    byId(id).onclick = () => send({v: 1, type, roomId: 'room-001', requestTag: String(++serial)});
+  }
+  byId('resume').onclick = () => send({v: 1, type: 'hello', sessionToken});
   byId('disconnect').onclick = () => { update('closing'); socket?.close(1000, 'user disconnected'); };
   byId('clear').onclick = () => byId('log').replaceChildren();
 </script>
