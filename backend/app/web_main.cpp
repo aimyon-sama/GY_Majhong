@@ -1,8 +1,8 @@
 #include <boost/asio.hpp>
 #include <boost/beast/core.hpp>
 #include <gymj/server/gateway/listener.hpp>
+#include <gymj/server/gateway/router.hpp>
 #include <gymj/server/gateway/ws_session.hpp>
-#include <nlohmann/json.hpp>
 
 #include <charconv>
 #include <csignal>
@@ -16,46 +16,11 @@
 
 namespace net = boost::asio;
 namespace beast = boost::beast;
-using Json = nlohmann::json;
 using Listener = gymj::server::gateway::Listener;
+using Router = gymj::server::gateway::Router;
 using WsSession = gymj::server::gateway::WsSession;
 
 namespace {
-
-void send(const WsSession::Ptr& session, Json message) {
-    session->send_text(message.dump());
-}
-
-void error(const WsSession::Ptr& session, const char* code) {
-    send(session, {{"type", "error"}, {"code", code}});
-}
-
-void on_message(WsSession::Ptr session, std::string text) {
-    Json message;
-    try {
-        message = Json::parse(text, [](int depth, Json::parse_event_t, Json&) {
-            if (depth > 32) throw std::invalid_argument("json_too_deep");
-            return true;
-        });
-    } catch (const Json::exception&) {
-        return error(session, "invalid_json");
-    } catch (const std::invalid_argument&) {
-        return error(session, "json_too_deep");
-    }
-    if (!message.is_object()) return error(session, "invalid_json");
-    const auto type = message.find("type");
-    if (type == message.end() || !type->is_string()) return error(session, "invalid_type");
-
-    if (*type == "ping") {
-        send(session, {{"type", "pong"}});
-    } else if (*type == "echo") {
-        const auto payload = message.find("payload");
-        if (payload == message.end() || !payload->is_string()) return error(session, "invalid_payload");
-        send(session, {{"type", "echo"}, {"payload", *payload}});
-    } else {
-        error(session, "unknown_type");
-    }
-}
 
 std::uint16_t parse_port(std::string_view text) {
     unsigned int port = 0;
@@ -67,19 +32,60 @@ std::uint16_t parse_port(std::string_view text) {
     return static_cast<std::uint16_t>(port);
 }
 
+template <typename Integer>
+Integer parse_number(std::string_view text, const char* message) {
+    Integer value{};
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (text.empty() || result.ec != std::errc{} || result.ptr != text.data() + text.size()) {
+        throw std::invalid_argument(message);
+    }
+    return value;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
     try {
-        if (argc > 2) throw std::invalid_argument("Usage: gymj_server [port]");
-        const auto port = argc == 2 ? parse_port(argv[1]) : std::uint16_t{8080};
+        std::uint16_t port = 8080;
+        gymj::common::TableOptions options;
+        int index = 1;
+        if (index < argc && !std::string_view(argv[index]).starts_with("--")) port = parse_port(argv[index++]);
+        for (; index < argc; ++index) {
+            const std::string_view flag = argv[index];
+            if (index + 1 >= argc) throw std::invalid_argument("Missing option value");
+            const std::string_view value = argv[++index];
+            if (flag == "--action-timeout-ms") {
+                options.action_timeout_ms = parse_number<int>(value, "Invalid action timeout");
+                if (options.action_timeout_ms <= 0) throw std::invalid_argument("Action timeout must be positive");
+            } else if (flag == "--seed") {
+                options.seed = parse_number<std::uint64_t>(value, "Invalid seed");
+            } else {
+                throw std::invalid_argument("Usage: gymj_server [port] [--action-timeout-ms N] [--seed N]");
+            }
+        }
         net::io_context ioc{1};
+        auto router = std::make_shared<Router>(ioc, gymj::common::RuleConfig{}, options);
         net::signal_set signals(ioc, SIGINT, SIGTERM);
-        signals.async_wait([&ioc](beast::error_code ec, int) {
-            if (!ec) ioc.stop();
+        signals.async_wait([&ioc, router](beast::error_code ec, int) {
+            if (!ec) {
+                router->stop();
+                ioc.stop();
+            }
         });
-        auto listener = std::make_shared<Listener>(ioc, port, on_message);
+        // main 只装配网络和业务组件；所有牌桌操作在这个单线程事件循环内串行执行。
+        auto listener = std::make_shared<Listener>(ioc, port,
+            [router](WsSession::Ptr connection, std::string text) {
+                router->on_message(std::move(connection), std::move(text));
+            },
+            [router, &ioc](WsSession::Ptr connection, beast::error_code) {
+                // 队列溢出可能在 send_text 内同步触发关闭。推迟断线处理，
+                // 避免重入 Table 并把较新的断线快照插到本次出牌快照之前。
+                net::post(ioc, [router, connection = std::move(connection)] {
+                    router->on_close(connection);
+                });
+            });
         listener->run();
+        router->start();
         std::cout << "WebSocket listening on ws://127.0.0.1:" << listener->port() << std::endl;
         ioc.run();
     } catch (const std::exception& error) {

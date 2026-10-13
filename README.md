@@ -181,7 +181,19 @@ for the file schema, error handling, and JSON dependency setup.
 6. Export replay JSON and score files at game end.
 7. Add reconnect, timeout auto-play, and replay viewer.
 
+## Frontend Prototype
+
+A local Vue table prototype is available in `frontend/`: run `npm install` and `npm run dev`
+there to view it. It uses sample data and includes tile selection, action buttons, and results;
+it does not connect to the server yet. See the [frontend guide](frontend/README.md).
+
 ## Backend Tests
+
+The single-room server now connects protocol v1 to temporary sessions, joining, readiness,
+actions, and private snapshots. See the [single-room server guide (Chinese)](docs/server-v1.md)
+for design explanations, MSVC build commands, and network tests. The server now schedules
+automatic discards and passes for idle or disconnected players through round settlement.
+The game UI is not yet connected.
 
 Configure and run the backend test suite from the repository root:
 

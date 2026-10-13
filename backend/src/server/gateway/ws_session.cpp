@@ -1,4 +1,6 @@
 #include <gymj/server/gateway/ws_session.hpp>
+#include <gymj/server/gateway/protocol.hpp>
+#include <nlohmann/json.hpp>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/error.hpp>
@@ -26,7 +28,7 @@ WsSession::WsSession(net::ip::tcp::socket socket,
       on_message_(std::move(on_message)),
       on_close_(std::move(on_close)) {
     if (!on_message_ || !on_close_) {
-        throw std::invalid_argument("WsSessionExample requires both callbacks");
+        throw std::invalid_argument("WsSession requires both callbacks");
     }
 }
 
@@ -55,6 +57,7 @@ void WsSession::read() {
         const bool is_text = self->ws_.got_text();
         auto message = beast::buffers_to_string(self->input_.data());
         self->input_.consume(self->input_.size());
+        if (self->closing_ || self->stopped_) return;
 
         if (is_text) {
             try {
@@ -67,8 +70,8 @@ void WsSession::read() {
                 return self->stop("message handler", {});
             }
         } else {
-            // Preserve the current test endpoint's response to binary messages.
-            self->send_text(R"({"type":"error","code":"text_only"})");
+            self->send_text(protocol::encode_error({protocol::ErrorCode::TextOnly,
+                "Only text messages are supported", {}, {}}).dump());
         }
 
         if (!self->closing_ && !self->stopped_) self->read();
@@ -101,7 +104,9 @@ void WsSession::write() {
             self->queued_bytes_ -= self->outbox_.front().size();
             self->outbox_.pop_front();
             self->writing_ = false;
-            if (!self->closing_ && !self->stopped_ && !self->outbox_.empty()) self->write();
+            if (self->stopped_) return;
+            if (self->closing_) self->close_websocket();
+            else if (!self->outbox_.empty()) self->write();
         });
 }
 
@@ -110,6 +115,11 @@ void WsSession::close() {
     closing_ = true;
     if (!accepted_) return stop("close", {});
 
+    // 会话接管可能发生在旧连接仍在写快照时，关闭帧必须等待当前写操作完成。
+    if (!writing_) close_websocket();
+}
+
+void WsSession::close_websocket() {
     ws_.async_close(websocket::close_code::normal,
         [self = shared_from_this()](beast::error_code error) {
             self->stop("close", error);

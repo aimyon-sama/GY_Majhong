@@ -284,6 +284,31 @@ void test_parallel_claims_and_settlement() {
     require(!f.table.submit(f.players[1], first, f.now + 1s).accepted, "previous round command rejected");
 }
 
+void test_tileless_commands() {
+    // 网络协议省略过/和牌的牌面；执行时补齐，但缓存的请求内容不能被改写。
+    for (const auto response : {PlayerActionType::Pass, PlayerActionType::Ron}) {
+        Fixture f;
+        require(f.table.start(wall_with(multi_ron_hands(), {m(5), s(5)}), f.now).accepted,
+            "tileless response fixture starts");
+        f.act(0, PlayerActionType::Discard, m(5));
+        const auto command = f.command(1, response, null_tile);
+        require(f.table.submit(f.players[1], command, f.now).accepted, "tileless response accepted");
+        f.pass_remaining();
+        const auto seq = f.view().table_seq;
+        const auto retry = f.table.submit(f.players[1], command, f.now);
+        require(retry.accepted && retry.duplicate && retry.deliveries.empty()
+            && f.view().table_seq == seq, "tileless response retries after window ends");
+    }
+    Fixture f;
+    std::array<std::vector<Tile>, 4> hands{};
+    hands[0] = {m(1), m(2), m(3), m(1), m(2), m(3), m(6), m(7), m(8), m(6), m(7), m(8), m(5)};
+    require(f.table.start(wall_with(hands, {m(5), s(5)}), f.now).accepted, "tsumo fixture starts");
+    const auto tsumo = f.command(0, PlayerActionType::Tsumo, null_tile);
+    require(f.table.submit(f.players[0], tsumo, f.now).accepted
+        && f.view().table_stage == TableStage::RoundFinished, "tileless tsumo settles");
+    require(f.table.submit(f.players[0], tsumo, f.now).duplicate, "tileless tsumo retries after settlement");
+}
+
 void test_disconnect_and_timeout_windows() {
     // 截止时刻拒绝迟到命令，重连不续时，新窗口不能被旧 tick 立即超时处理。
     Fixture f;
@@ -489,6 +514,7 @@ int main() {
         test_start_and_visibility();
         test_request_validation_and_retries();
         test_parallel_claims_and_settlement();
+        test_tileless_commands();
         test_disconnect_and_timeout_windows();
         test_concealed_kan_visibility();
         test_failed_start_is_transactional();

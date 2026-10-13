@@ -297,7 +297,18 @@ TableUpdate Table::submit(PlayerInfo player, Command command, TimePoint now) {
     else if (command.prompt_id != prompt_id_ || !deadlines_[seat]) out = fail("invalid action prompt");
     else if (now_ >= *deadlines_[seat]) out = fail("action deadline expired");
     else {
-        out = consume(round_->submit_action(seat, command.action));
+        auto action = command.action;
+        // 协议的过/和牌不携带目标牌，由当前合法动作恢复核心需要的牌面。
+        // 只修改执行副本：回执仍缓存原始 Command，窗口结束后重发也能精确去重。
+        if (action.action_tile == null_tile
+            && (action.type == PlayerActionType::Pass || action.type == PlayerActionType::Ron
+                || action.type == PlayerActionType::Tsumo)) {
+            const auto available = round_->available_actions();
+            const auto allowed = std::find_if(available[seat].begin(), available[seat].end(),
+                [&](const PlayerAction& candidate) { return candidate.type == action.type; });
+            if (allowed != available[seat].end()) action = *allowed;
+        }
+        out = consume(round_->submit_action(seat, action));
         if (out.accepted) append_update(out, advance());
     }
     out.request_id = command.request_id;

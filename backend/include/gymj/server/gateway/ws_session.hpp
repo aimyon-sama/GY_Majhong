@@ -32,6 +32,7 @@ public:
 private:
     void read();
     void write();
+    void close_websocket();
     void stop(const char* operation, boost::beast::error_code error);
 
     boost::beast::websocket::stream<boost::beast::tcp_stream> ws_;
