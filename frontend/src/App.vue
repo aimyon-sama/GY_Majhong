@@ -1,128 +1,117 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import SeatPanel from './components/SeatPanel.vue'
 import HandPanel from './components/HandPanel.vue'
 import ResultPanel from './components/ResultPanel.vue'
-import { actionNames, makeView, scenes, tileName } from './demo.js'
+import { actionNames, tileName } from './tile-labels.js'
+import { GameClient, savedAddress } from './net/game-client.js'
 
+const address = ref(savedAddress())
 const nickname = ref('玩家')
-const entered = ref(false)
-const scene = ref('waiting_ready')
-const round = ref(1)
-const view = ref(makeView(scene.value, nickname.value))
 const selected = ref(null)
-const locked = ref(false)
-const notice = ref('填写昵称并进入原型，或使用“示例场景”查看页面状态。')
-const specialActions = computed(() => view.value.availableActions.filter(action => action.type !== 'discard'))
+const client = new GameClient({ onChange: value => { state.value = value } })
+const state = shallowRef(client.state)
+const view = computed(() => state.value.view)
+const connected = computed(() => !['idle', 'disconnected'].includes(state.value.status))
+const locked = computed(() => state.value.status !== 'online' || state.value.pending)
+const specialActions = computed(() => view.value?.availableActions.filter(action => action.type !== 'discard') ?? [])
 const positions = ['自己', '下家', '对家', '上家']
+const seats = computed(() => view.value ? positions.map((position, offset) => {
+  const index = (view.value.selfSeat + offset) % 4
+  return { position, index, seat: view.value.seats[index] }
+}) : [])
 const stageNames = { waiting_ready: '等待准备', playing: '对局中', round_finished: '本局结束' }
-
-function loadScene(value) {
-  scene.value = value
-  view.value = makeView(value, nickname.value.trim() || '玩家', String(round.value))
+const statusNames = { idle: '未连接', connecting: '连接中', authenticating: '确认身份中',
+  syncing: '同步牌桌中', online: '已连接', disconnected: '已断开' }
+const canReady = computed(() => !locked.value && view.value && view.value.tableStage !== 'playing'
+  && !view.value.seats[view.value.selfSeat].ready)
+// 组件使用的结果仅由服务端结算字段派生，不在前端计算分数。
+const result = computed(() => {
+  const current = view.value
+  if (!current?.roundResult || !current.pointResult) return null
+  return {
+    reason: current.roundResult.hasWinner
+      ? `${current.roundResult.winnerSeats.map(seat => current.seats[seat].nickname).join('、')} ${current.roundResult.winType === 'tsumo' ? '自摸' : '荣和'}`
+      : '牌山摸完，流局',
+    chickenTile: current.roundResult.roundChicken,
+    details: current.pointResult.detail.map((detail, seat) => ({ ...detail, nickname: current.seats[seat].nickname })),
+  }
+})
+const remainingMs = ref(null)
+let deadline = null
+let timer
+watch(view, current => {
   selected.value = null
-  locked.value = false
-  notice.value = `正在展示：${scenes.find(([key]) => key === value)[1]}。`
+  remainingMs.value = current?.remainingMs ?? null
+  deadline = remainingMs.value === null ? null : performance.now() + remainingMs.value
+})
+function updateClock() {
+  remainingMs.value = deadline === null ? null : Math.max(0, deadline - performance.now())
 }
-
-function enter() {
-  if (!nickname.value.trim()) return
-  entered.value = true
-  loadScene('waiting_ready')
+function connect() { client.connect(address.value, nickname.value) }
+function discard() {
+  if (selected.value === null) return
+  client.act({ type: 'discard', tile: view.value.ownTiles.hand[selected.value] })
 }
-
-function previewScene(event) {
-  entered.value = true
-  loadScene(event.target.value)
-}
-
-function chooseAction(action) {
-  if (locked.value) return
-  if (action.type === 'discard') {
-    const index = selected.value
-    if (index === null || view.value.ownTiles.hand[index] !== action.tile) return
-    view.value.ownTiles.hand.splice(index, 1)
-    view.value.ownTiles.drawBuffer = null
-    view.value.seats[0].river.push(action.tile)
-    view.value.seats[0].handSize = view.value.ownTiles.hand.length
-    selected.value = null
-  }
-  if (action.type === 'tsumo' || action.type === 'ron') {
-    loadScene('win_result')
-  } else {
-    locked.value = true
-    view.value.remainingMs = null
-  }
-  notice.value = `已选择${actionNames[action.type]}${action.tile ? ` ${tileName(action.tile)}` : ''}（本地演示）。可切换示例场景继续查看。`
-}
-
-function nextRound() {
-  round.value++
-  loadScene('waiting_ready')
-  notice.value = '已返回准备状态，点击“准备”预览下一局。'
-}
+onMounted(() => {
+  timer = setInterval(updateClock, 100)
+  try {
+    if (client.tokenFor(new URL(address.value).href)) connect()
+  } catch { /* 无效地址交给连接表单报告。 */ }
+})
+onUnmounted(() => { clearInterval(timer); client.disconnect() })
 </script>
 
 <template>
   <main>
     <header>
       <h1>GY Mahjong</h1>
-      <p>Vue 静态原型 · 示例数据 · 未连接服务器</p>
+      <p>{{ statusNames[state.status] }}<span v-if="state.nickname"> · {{ state.nickname }}</span></p>
     </header>
-
     <section aria-labelledby="entry-title">
       <h2 id="entry-title">进入房间</h2>
-      <form @submit.prevent="enter">
-        <label>昵称 <input v-model="nickname" required maxlength="24" :disabled="entered" /></label>
+      <form @submit.prevent="connect">
+        <label>服务地址 <input v-model="address" required :disabled="connected" spellcheck="false" /></label>
+        <label>昵称 <input v-model="nickname" required maxlength="48" :disabled="connected" /></label>
         <span>房间：room-001</span>
-        <button type="submit" :disabled="entered || !nickname.trim()">进入原型</button>
-        <button v-if="entered" type="button" @click="entered = false; round = 1; loadScene('waiting_ready')">返回入口</button>
+        <button type="submit" :disabled="connected || !nickname.trim()">{{ state.status === 'disconnected' ? '重新连接' : '连接并进入' }}</button>
+        <button v-if="connected" type="button" @click="client.disconnect()">断开连接</button>
       </form>
+      <p>此标签页会保存临时身份，刷新或重新连接可恢复原座位。服务重启后需重新进入。</p>
     </section>
-
-    <section aria-labelledby="demo-title">
-      <h2 id="demo-title">示例场景</h2>
-      <label>查看状态 <select :value="scene" @change="previewScene">
-        <option v-for="[value, label] in scenes" :key="value" :value="value">{{ label }}</option>
-      </select></label>
-      <button type="button" @click="entered = true; loadScene(scene)">重置当前示例</button>
-      <p>用于检查内容和按钮，不进行规则判定。示例倒计时保持不变。</p>
-    </section>
-
-    <p role="status" aria-live="polite">{{ notice }}</p>
-
-    <template v-if="entered">
+    <p role="status" aria-live="polite">{{ state.notice }}</p>
+    <p v-if="state.storageWarning" role="alert">{{ state.storageWarning }}</p>
+    <template v-if="view">
+      <p v-if="state.status !== 'online'">牌桌尚未同步，操作暂不可用。</p>
       <section aria-labelledby="table-title">
-        <h2 id="table-title">牌桌 · {{ view.roomId }}</h2>
+        <h2 id="table-title">牌桌 · {{ state.roomId }}</h2>
         <p>第 {{ view.roundId }} 局 · {{ stageNames[view.tableStage] }} · 牌山剩余 {{ view.tilesRemaining }} 张</p>
-        <p>我的操作倒计时：{{ view.remainingMs === null ? '无' : `${view.remainingMs / 1000} 秒（示例）` }}</p>
+        <p>我的操作倒计时：{{ state.status !== 'online' ? '等待同步' : remainingMs === null ? '无' : `${Math.ceil(remainingMs / 1000)} 秒` }}</p>
         <p v-if="view.pendingAction">待响应的牌：{{ tileName(view.pendingAction.tile) }}</p>
         <div class="seats">
-          <SeatPanel v-for="(seat, index) in view.seats" :key="index" :seat="seat" :position="positions[index]"
-            :dealer="index === view.dealerSeat" :active="view.tableStage === 'playing' && index === view.actingSeat"
-            :self="index === view.selfSeat" :points="view.totalPoints[index]" />
+          <SeatPanel v-for="item in seats" :key="item.index" :seat="item.seat" :position="item.position"
+            :dealer="item.index === view.dealerSeat" :active="view.tableStage === 'playing' && item.index === view.actingSeat"
+            :self="item.index === view.selfSeat" :points="view.totalPoints[item.index]" />
         </div>
-        <button v-if="view.tableStage === 'waiting_ready'" type="button" @click="loadScene('discard')">准备（预览开局）</button>
+        <button v-if="view.tableStage === 'waiting_ready'" type="button" :disabled="!canReady" @click="client.ready()">
+          {{ view.seats[view.selfSeat].ready ? '已准备，等待其他玩家' : '准备' }}
+        </button>
       </section>
-
       <HandPanel :tiles="view.ownTiles" :actions="view.availableActions" :selected="selected"
-        :locked="locked || view.tableStage !== 'playing'" @select="selected = $event"
-        @discard="chooseAction({ type: 'discard', tile: view.ownTiles.hand[selected] })" />
-
+        :locked="locked || view.tableStage !== 'playing'" @select="selected = $event" @discard="discard" />
       <section v-if="view.tableStage === 'playing'" aria-labelledby="actions-title">
         <h2 id="actions-title">操作</h2>
         <div class="button-row">
           <button v-for="action in specialActions" :key="`${action.type}-${action.tile ?? ''}`" type="button"
-            :disabled="locked" @click="chooseAction(action)">
+            :disabled="locked" @click="client.act(action)">
             {{ actionNames[action.type] }} {{ action.tile ? tileName(action.tile) : '' }}
           </button>
         </div>
-        <p v-if="locked">操作已记录，请切换示例场景继续查看。</p>
+        <p v-if="state.pending">正在等待服务器确认和同步牌桌。</p>
         <p v-else-if="!view.availableActions.length">等待其他玩家操作。</p>
         <p v-else-if="!specialActions.length">请选择手牌，然后点击“打出选中的牌”。</p>
       </section>
-
-      <ResultPanel v-if="view.result" :result="view.result" :total-points="view.totalPoints" @next="nextRound" />
+      <ResultPanel v-if="result" :result="result" :total-points="view.totalPoints" :ready-disabled="!canReady" @next="client.ready()" />
     </template>
   </main>
 </template>

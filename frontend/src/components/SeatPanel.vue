@@ -1,12 +1,12 @@
 <script setup>
-import { actionNames, tileName } from '../demo.js'
+import { actionNames, tileName } from '../tile-labels.js'
 defineProps({ seat: Object, position: String, dealer: Boolean, active: Boolean, self: Boolean, points: String })
 </script>
 
 <template>
   <fieldset>
-    <legend>{{ position }} · {{ seat.nickname }} {{ dealer ? '（庄家）' : '' }}</legend>
-    <p>
+    <legend>{{ position }} · {{ seat.occupied ? seat.nickname : '空座' }} {{ dealer ? '（庄家）' : '' }}</legend>
+    <p v-if="seat.occupied">
       {{ seat.connected ? '在线' : '离线' }} · {{ seat.ready ? '已准备' : '未准备' }}
       · 累计分：{{ points }} <strong v-if="active">· 当前行动</strong>
     </p>

@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { tileName } from '../demo.js'
+import { tileName } from '../tile-labels.js'
 const props = defineProps({ tiles: Object, actions: Array, selected: Number, locked: Boolean })
 const emit = defineEmits(['select', 'discard'])
 const allowed = computed(() => new Set(props.actions.filter(a => a.type === 'discard').map(a => a.tile)))

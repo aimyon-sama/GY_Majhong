@@ -183,9 +183,9 @@ for the file schema, error handling, and JSON dependency setup.
 
 ## Frontend Prototype
 
-A local Vue table prototype is available in `frontend/`: run `npm install` and `npm run dev`
-there to view it. It uses sample data and includes tile selection, action buttons, and results;
-it does not connect to the server yet. See the [frontend guide](frontend/README.md).
+The Vue table in `frontend/` connects to protocol v1 for session recovery, joining, readiness,
+actions, and authoritative snapshots. Start the backend, then run `npm install` and `npm run dev`
+in `frontend/`. See the [frontend guide](frontend/README.md) for four-player testing.
 
 ## Backend Tests
 
@@ -193,7 +193,7 @@ The single-room server now connects protocol v1 to temporary sessions, joining, 
 actions, and private snapshots. See the [single-room server guide (Chinese)](docs/server-v1.md)
 for design explanations, MSVC build commands, and network tests. The server now schedules
 automatic discards and passes for idle or disconnected players through round settlement.
-The game UI is not yet connected.
+The Vue table now renders this server-driven state flow.
 
 Configure and run the backend test suite from the repository root:
 
