@@ -188,6 +188,22 @@ TableUpdate Table::join(PlayerInfo player) {
     return reject("table is full");
 }
 
+TableUpdate Table::leave(PlayerInfo player) {
+    const int seat = find_seat(player);
+    if (seat < 0) return reject("player not seated");
+    if (stage_ == TableStage::Playing) return reject("round in progress");
+    seats_[seat] = SeatState{};
+    total_points_[seat] = 0;
+    // 人员变更后重新准备；旧结局已写入牌谱，不能贴到新玩家名下。
+    for (auto& member : seats_) member.is_ready = false;
+    round_.reset();
+    deadlines_ = {};
+    stage_ = TableStage::WaitingReady;
+    // 保持局号和序号递增，旧动作不能碰巧匹配下一局。
+    ++table_seq_;
+    return publish();
+}
+
 TableUpdate Table::ready(PlayerInfo player) {
     const int seat = find_seat(player);
     if (seat < 0) return reject("player not seated");

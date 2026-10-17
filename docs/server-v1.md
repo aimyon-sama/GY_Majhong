@@ -93,7 +93,7 @@ cmake --build build-web-vendored --config Debug --parallel 4
 ctest --test-dir build-web-vendored -C Debug --output-on-failure
 ```
 
-CMake 检测到 Node.js 22+ 时自动注册三组真实 WebSocket 测试，不需要安装 npm 包。
+CMake 检测到 Node.js 22+ 时自动注册四组真实 WebSocket 测试，不需要安装 npm 包。
 没有合适的 Node 时，配置输出会说明跳过网络测试，C++ 测试仍可运行。
 
 - `gymj_session_manager_tests`：同名身份隔离、令牌形状、重复认证、当前连接归属、
@@ -145,7 +145,27 @@ build-web-vendored/app/Debug/gymj_server.exe 8080 --action-timeout-ms 15000
 ## 7. 本阶段边界
 
 目前固定一个房间、四个座位，关闭网页保留原座位；身份保存在内存中，服务重启后失效。
-动态建房、离桌、房间回收和会话过期尚未实现。Vue 牌桌已接入协议 v1，连接与联调步骤见
+已支持等待准备或结算后的主动离桌和座位释放。动态建房、房间回收和会话过期尚未实现。Vue 牌桌已接入协议 v1，连接与联调步骤见
 [前端说明](../frontend/README.md)。
 
 超时托管只负责推进当前小局；结束后仍需四名在线玩家重新准备才能开始下一局。
+
+## 8. 主动离桌
+
+`leave_room` 经 Router 验证当前身份和房间后交给 `Room::leave()`，再由 `Table::leave()`
+检查阶段并释放座位。对局中拒绝离桌，关闭网页仍是断线，保留座位和托管。
+
+成功后 Room 删除投递索引及会话中的房间、玩家绑定；认证令牌继续有效。离桌者收到成功
+回执，剩余在线玩家收到空座位快照。未入座时重复离桌不修改牌桌，离桌者的旧连接关闭也
+不能影响新占座者。新入座分配新的内部玩家 ID。
+
+离桌者累计分清零，其他玩家累计分保留。全员准备取消，上一局状态移除，牌桌返回等待准备，
+避免新名字对应旧手牌或结算。已完成牌谱不改写；局号、桌序号以及牌谱文件继续沿用。
+四人都离桌后，固定房间保留为空桌，可直接重新加入；本阶段不实现自动踢出或房间销毁。
+
+`gymj_web_leave_tests` 覆盖认证与伪造字段、重复离桌、空座位广播、第五人补位、旧身份访问
+拒绝、离桌后恢复未入座身份、对局中拒绝离桌和空桌再次开局。可单独运行：
+
+```powershell
+node scripts/test-leave.mjs build-web-vendored/app/Debug/gymj_server.exe
+```

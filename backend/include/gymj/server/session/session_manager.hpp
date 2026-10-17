@@ -41,7 +41,7 @@ public:
     Session disconnect(const Connection& connection);
 
 private:
-    // v1 身份仅保存在进程内，重启失效；座位回收及会话过期策略另行实现。
+    // v1 身份仅保存在进程内，重启失效；主动离桌保留身份，会话过期策略另行实现。
     std::unordered_map<std::string, Session> tokens_;
     std::unordered_map<const gateway::WsSession*, Session> connections_;
 };

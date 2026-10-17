@@ -24,6 +24,22 @@ common::TableUpdate Room::join(const SessionManager::Session& session) {
     return update;
 }
 
+common::TableUpdate Room::leave(const SessionManager::Session& session) {
+    // 未入座时重复离桌也成功，不影响任何座位。
+    if (!session->player) {
+        common::TableUpdate update;
+        update.accepted = true;
+        return update;
+    }
+    auto update = table_.leave(*session->player);
+    if (update.accepted) {
+        members_.erase(session->player->id);
+        session->player.reset();
+        session->room_id.reset();
+    }
+    return update;
+}
+
 bool Room::ready_to_start() const {
     if (members_.size() != 4) return false;
     const auto view = table_.snapshot(*members_.begin()->second->player);

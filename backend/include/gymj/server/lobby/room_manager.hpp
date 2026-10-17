@@ -17,6 +17,7 @@ public:
     static constexpr std::string_view id = "room-001";
 
     common::TableUpdate join(const SessionManager::Session& session);
+    common::TableUpdate leave(const SessionManager::Session& session);
     bool ready_to_start() const;
     gateway::WsSession::Ptr connection_for(std::uint64_t player_id) const;
     std::vector<gateway::WsSession::Ptr> online_connections() const;

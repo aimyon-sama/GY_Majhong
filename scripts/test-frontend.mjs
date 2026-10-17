@@ -57,7 +57,7 @@ try {
   await sync()
   const fifth = createClient()
   fifth.connect(address, '第五人')
-  await until(() => fifth.state.status === 'disconnected', 'full room rejection')
+  await until(() => fifth.state.status === 'lobby', 'full room rejection')
   assert.match(fifth.state.notice, /房间已满/)
 
   for (const client of players) {
@@ -99,12 +99,35 @@ try {
   }
   assert.ok(players.every(p => p.state.view.tableStage === 'round_finished'))
   assert.ok(players.every(p => p.state.view.pointResult && p.state.view.roundResult))
+  const departed = players[0]
+  assert.equal(departed.leave(), true)
+  await until(() => departed.state.status === 'lobby', 'leave after settlement')
+  assert.equal(departed.state.view, null)
+  departed.disconnect()
+  const lobbyRestored = createClient(stores[0])
+  lobbyRestored.connect(address, '不应自动入座')
+  await until(() => lobbyRestored.state.status === 'lobby', 'refresh after leaving')
+  assert.equal(lobbyRestored.state.view, null)
+  assert.equal(fifth.join(), true)
+  await until(() => fifth.state.status === 'online', 'fifth player fills released seat')
+  players[0] = fifth
+  await sync()
+  assert.equal(fifth.state.view.selfSeat, 0)
+  assert.equal(fifth.state.view.totalPoints[0], '0')
+  assert.deepEqual(fifth.state.view.ownTiles.hand, [])
+  assert.equal(fifth.state.view.roundResult, null)
+  assert.equal(fifth.leave(), true)
+  await until(() => fifth.state.status === 'lobby', 'replacement leaves')
+  assert.equal(lobbyRestored.join(), true)
+  players[0] = lobbyRestored
+  await sync()
   for (const player of players) {
     assert.equal(player.ready(), true)
     await sync()
   }
   assert.ok(players.every(p => p.state.view.roundId === '2' && p.state.view.tableStage === 'playing'))
-  console.log('PASS: frontend client joins, readies, submits authoritative actions, restores identity, completes a round and starts the next.')
+  assert.ok(players.every(p => !p.leave()), 'active clients cannot leave')
+  console.log('PASS: frontend game, identity recovery, settlement, voluntary leave, vacancy reuse, lobby refresh and next round.')
 } finally {
   for (const client of clients) client.disconnect()
   await server.stop()

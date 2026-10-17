@@ -24,6 +24,7 @@ private:
     using Session = SessionManager::Session;
     void hello(const WsSession::Ptr& connection, const protocol::HelloRequest& request);
     void handle(const WsSession::Ptr&, const Session&, const protocol::JoinRoomRequest&);
+    void handle(const WsSession::Ptr&, const Session&, const protocol::LeaveRoomRequest&);
     void handle(const WsSession::Ptr&, const Session&, const protocol::ReadyRequest&);
     void handle(const WsSession::Ptr&, const Session&, const protocol::SnapshotRequest&);
     void handle(const WsSession::Ptr&, const Session&, const protocol::ActionRequest&);

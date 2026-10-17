@@ -213,6 +213,7 @@ ParsedAction parse_action(const Json& object) {
 std::string_view operation_name(LobbyOperation operation) noexcept {
     switch (operation) {
         case LobbyOperation::JoinRoom: return "join_room";
+        case LobbyOperation::LeaveRoom: return "leave_room";
         case LobbyOperation::Ready: return "ready";
         case LobbyOperation::Snapshot: return "snapshot";
     }
@@ -562,6 +563,11 @@ DecodeResult decode_client_message(std::string_view text) {
     if (*type == "join_room") {
         return decode_room_request([](std::string tag, std::string room) -> ClientRequest {
             return JoinRoomRequest{std::move(tag), std::move(room)};
+        });
+    }
+    if (*type == "leave_room") {
+        return decode_room_request([](std::string tag, std::string room) -> ClientRequest {
+            return LeaveRoomRequest{std::move(tag), std::move(room)};
         });
     }
     if (*type == "ready") {

@@ -135,6 +135,31 @@ export class GameClient {
     this.send({ type: 'snapshot', roomId: ROOM, requestTag: this.snapshotTag })
   }
 
+  enterLobby(notice) {
+    clearTimeout(this.timer)
+    this.pending = null
+    this.snapshotTag = null
+    this.awaitingSnapshot = false
+    this.requestRound = null
+    this.requestId = 0n
+    this.publish({ status: 'lobby', roomId: null, view: null, pending: false, notice })
+  }
+
+  join() {
+    if (this.state.status !== 'lobby' || this.state.pending) return false
+    this.publish({ status: 'syncing', notice: '正在进入房间…' })
+    this.lobby('join_room')
+    return true
+  }
+
+  leave() {
+    const { status, pending, view } = this.state
+    if (status !== 'online' || pending || !view || view.tableStage === 'playing') return false
+    this.lobby('leave_room')
+    this.publish({ notice: '正在离桌，等待服务器确认…' })
+    return true
+  }
+
   ready() {
     const { status, pending, view } = this.state
     if (status !== 'online' || pending || !view || view.tableStage === 'playing'
@@ -165,8 +190,10 @@ export class GameClient {
         notice: message.resumed ? '身份已恢复。' : '身份已创建，正在进入房间。' })
       // 恢复已入座身份时，welcome 后由服务器主动发送私有快照。
       if (message.roomId) this.awaitingSnapshot = true
+      else if (message.resumed) this.enterLobby('身份已恢复，当前未入座，可点击“加入房间”。')
       else this.lobby('join_room')
     } else if (message.type === 'table_update') {
+      if (this.state.status === 'lobby') return
       if (message.roomId !== ROOM) return
       const view = message.view
       if (this.state.view && BigInt(view.tableSeq) < BigInt(this.state.view.tableSeq)) return
@@ -182,7 +209,7 @@ export class GameClient {
         clearTimeout(this.timer)
       }
       // 完整替换快照；events 不再重复修改手牌、牌河或分数。
-      this.publish({ view, ...(synchronized ? { status: 'online', pending: false } : {}) })
+      this.publish({ view, roomId: ROOM, ...(synchronized ? { status: 'online', pending: false } : {}) })
     } else if (message.type === 'ack') {
       if (message.requestTag && message.requestTag === this.snapshotTag) {
         this.snapshotTag = null
@@ -194,11 +221,19 @@ export class GameClient {
       if (!pending || message.operation !== pending.type) return
       if (pending.type === 'action' ? message.requestId !== pending.requestId
         : message.requestTag !== pending.requestTag) return
+      if (pending.type === 'leave_room') {
+        if (message.accepted) return this.enterLobby('已离桌，座位已释放。可再次加入房间。')
+        this.publish({ notice: message.error === 'action_not_allowed'
+          ? '本局已开始，暂时不能离桌；断线后仍保留座位并由服务器托管。'
+          : '离桌失败，正在同步牌桌。' })
+        this.sync()
+        return
+      }
       this.publish({ notice: message.accepted
         ? (pending.type === 'action' ? '操作已确认。' : pending.type === 'ready' ? '已准备，等待其他玩家。' : '已进入房间，请准备。')
         : (errors[message.error] || '请求未被接受，请稍后重试。') })
       if (pending.type === 'join_room') {
-        if (!message.accepted) return this.disconnect(this.state.notice)
+        if (!message.accepted) return this.enterLobby(this.state.notice)
         this.awaitingSnapshot = true
       } else {
         // 拒绝和重复请求可能没有广播，主动取快照后才解除按钮锁定。
@@ -219,7 +254,8 @@ export class GameClient {
     }
   }
 
-  disconnect(notice = '已断开连接，座位仍保留。可重新连接恢复身份。') {
+  disconnect(notice = this.state.view
+    ? '已断开连接，座位仍保留。可重新连接恢复身份。' : '已断开连接，可重新连接恢复身份。') {
     const socket = this.socket
     this.socket = null // 忽略旧连接迟到的消息和 close 回调。
     clearTimeout(this.timer)

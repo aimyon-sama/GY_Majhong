@@ -124,6 +124,19 @@ void Router::handle(const WsSession::Ptr& connection, const Session& session,
     deliver(*room, update);
 }
 
+void Router::handle(const WsSession::Ptr& connection, const Session& session,
+                    const protocol::LeaveRoomRequest& request) {
+    auto* room = rooms_.find(request.room_id);
+    if (!room) return error(connection, ErrorCode::RoomNotFound, request.request_tag);
+    if (session->room_id && *session->room_id != request.room_id) {
+        return error(connection, ErrorCode::RoomMismatch, request.request_tag);
+    }
+    const auto update = room->leave(session);
+    acknowledge(connection, protocol::LobbyOperation::LeaveRoom, request.request_tag, update);
+    // 离桌者已解除绑定，只向剩余在线玩家投递更新。
+    deliver(*room, update);
+}
+
 Room* Router::seated_room(const WsSession::Ptr& connection, const Session& session,
                          std::string_view room_id, std::optional<std::string> tag,
                          std::optional<std::uint64_t> request_id) {

@@ -104,6 +104,53 @@ struct Fixture {
     }
 };
 
+void test_leave_and_reuse() {
+    Fixture f;
+    const auto departed = f.players[0];
+    const auto before = f.view().table_seq;
+    const auto left = f.table.leave(departed);
+    require(left.accepted && left.table_seq == before + 1 && left.deliveries.size() == 3,
+        "leave publishes vacancy only to remaining players");
+    require(!f.table.snapshot(departed) && !f.table.ready(departed).accepted
+        && !f.table.join(departed).accepted, "departed seat identity no longer authorizes access");
+    require(!f.view(1).seats[0].occupied && f.view(1).seats[0].player_name.empty(), "vacated seat is empty");
+    for (const auto& seat : f.view(1).seats) require(!seat.ready, "roster change clears all readiness");
+    f.players[0] = *f.table.join(PlayerInfo{"replacement"}).assigned_player;
+    require(f.players[0].id != departed.id && f.view().self_seat == 0, "new player reuses seat with new identity");
+    require(!f.table.leave(departed).accepted && f.table.snapshot(f.players[0]).has_value(),
+        "late old leave cannot evict replacement");
+    for (const auto& player : f.players) f.table.ready(player);
+    std::array<std::vector<Tile>, 4> hands{};
+    hands[0] = {m(1), m(2), m(3), m(1), m(2), m(3), m(6), m(7), m(8), m(6), m(7), m(8), m(5)};
+    require(f.table.start(wall_with(hands, {m(5), s(5)}), f.now).accepted, "replacement can start");
+    const auto playing = f.view();
+    require(!f.table.leave(f.players[0]).accepted && f.view().table_seq == playing.table_seq
+        && f.view().deadline == playing.deadline, "active leave rejection preserves turn and deadline");
+    f.act(0, PlayerActionType::Tsumo, null_tile);
+    const auto finished = f.view();
+    require(finished.table_stage == TableStage::RoundFinished && finished.total_points[0] > 0,
+        "winning round has cumulative points");
+    const auto log = read_replay(f.table);
+    const auto path = f.table.replay().path();
+    require(f.table.leave(f.players[0]).accepted, "settled winner may leave");
+    auto waiting = f.view(1);
+    require(waiting.table_stage == TableStage::WaitingReady && !waiting.round_result
+        && !waiting.point_result && waiting.own_tiles.hand.empty() && !waiting.deadline,
+        "old hand, result and deadline removed after roster change");
+    require(waiting.total_points[0] == 0 && waiting.total_points[1] == finished.total_points[1],
+        "departed score cleared while remaining score retained");
+    require(read_replay(f.table) == log, "leaving does not overwrite completed replay");
+    for (int seat = 1; seat < 4; ++seat) require(f.table.leave(f.players[seat]).accepted, "all players can leave");
+    require(f.table.tick(f.now + 1s).deliveries.empty(), "empty table has no timeout work");
+    for (auto& player : f.players) {
+        player = *f.table.join(PlayerInfo{"fresh"}).assigned_player;
+        f.table.ready(player);
+    }
+    require(f.view().total_points == std::array<std::int64_t, 4>{}, "empty table has no inherited scores");
+    require(f.table.start(f.now).accepted && f.view().round_id == finished.round_id + 1
+        && f.table.replay().path() == path, "empty table reuses continuous round IDs and replay");
+}
+
 void test_identity_and_lifecycle() {
     Table table{RuleConfig{}};
     require(!table.start().accepted, "empty table cannot start");
@@ -511,6 +558,7 @@ void test_replay_metadata_and_storage_errors() {
 int main() {
     try {
         test_identity_and_lifecycle();
+        test_leave_and_reuse();
         test_start_and_visibility();
         test_request_validation_and_retries();
         test_parallel_claims_and_settlement();

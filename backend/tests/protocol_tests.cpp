@@ -56,6 +56,23 @@ void test_hello_and_room_requests() {
         R"({"v":1,"type":"join_room","requestTag":"join-1","roomId":"room-001"})");
     require(join && std::holds_alternative<protocol::JoinRoomRequest>(*join.request),
         "join_room should decode");
+    auto leave = protocol::decode_client_message(
+        R"({"v":1,"type":"leave_room","requestTag":"leave-1","roomId":"room-001"})");
+    require(leave && std::holds_alternative<protocol::LeaveRoomRequest>(*leave.request),
+        "leave_room should decode");
+    require(std::get<protocol::LeaveRoomRequest>(*leave.request).request_tag == "leave-1",
+        "leave request correlation retained");
+    for (const auto* invalid : {
+        R"({"v":1,"type":"leave_room","roomId":"room-001"})",
+        R"({"v":1,"type":"leave_room","requestTag":"x","roomId":"room-001","seat":1})",
+        R"({"v":1,"type":"leave_room","requestTag":"x","roomId":"room-001","playerId":"7"})"}) {
+        require(error_code(protocol::decode_client_message(invalid)) == protocol::ErrorCode::InvalidField,
+            "leave must reject missing tags and forged identities");
+    }
+    const auto ack = protocol::encode_ack(protocol::LobbyAck{
+        protocol::LobbyOperation::LeaveRoom, "leave-1", true, {}});
+    require(ack.at("operation") == "leave_room" && ack.at("requestTag") == "leave-1"
+        && ack.at("accepted") == true, "leave acknowledgement shape");
 }
 
 void test_action_decoder() {

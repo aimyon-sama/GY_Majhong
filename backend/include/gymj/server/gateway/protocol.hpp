@@ -76,6 +76,11 @@ struct ReadyRequest {
     std::string room_id;
 };
 
+struct LeaveRoomRequest {
+    std::string request_tag;
+    std::string room_id;
+};
+
 struct SnapshotRequest {
     std::string request_tag;
     std::string room_id;
@@ -90,6 +95,7 @@ using ClientRequest = std::variant<
     HelloRequest,
     PingRequest,
     JoinRoomRequest,
+    LeaveRoomRequest,
     ReadyRequest,
     SnapshotRequest,
     ActionRequest>;
@@ -117,6 +123,7 @@ struct Welcome {
 
 enum class LobbyOperation {
     JoinRoom,
+    LeaveRoom,
     Ready,
     Snapshot
 };

@@ -28,6 +28,7 @@ public:
     // id 为 0 表示新玩家；已入座 ID 表示重复入座或断线重连。
     TableUpdate join(PlayerInfo player);
     TableUpdate ready(PlayerInfo player);
+    TableUpdate leave(PlayerInfo player); // 仅局外允许，释放座位并清理离桌者累计分。
     TableUpdate start();
     TableUpdate start(TimePoint now); // 显式传入时间，便于测试倒计时边界。
     // 固定牌山入口用于构造可重复的规则测试。
