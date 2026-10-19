@@ -135,18 +135,18 @@ export class GameClient {
     this.send({ type: 'snapshot', roomId: ROOM, requestTag: this.snapshotTag })
   }
 
-  enterLobby(notice) {
+  enterLobby(notice, roomId = null) {
     clearTimeout(this.timer)
     this.pending = null
     this.snapshotTag = null
     this.awaitingSnapshot = false
     this.requestRound = null
     this.requestId = 0n
-    this.publish({ status: 'lobby', roomId: null, view: null, pending: false, notice })
+    this.publish({ status: roomId ? 'away' : 'lobby', roomId, view: null, pending: false, notice })
   }
 
   join() {
-    if (this.state.status !== 'lobby' || this.state.pending) return false
+    if (!['lobby', 'away'].includes(this.state.status) || this.state.pending) return false
     this.publish({ status: 'syncing', notice: '正在进入房间…' })
     this.lobby('join_room')
     return true
@@ -154,9 +154,9 @@ export class GameClient {
 
   leave() {
     const { status, pending, view } = this.state
-    if (status !== 'online' || pending || !view || view.tableStage === 'playing') return false
+    if (status !== 'online' || pending || !view) return false
     this.lobby('leave_room')
-    this.publish({ notice: '正在离桌，等待服务器确认…' })
+    this.publish({ notice: '正在交给 AI 代管，等待服务器确认…' })
     return true
   }
 
@@ -193,7 +193,7 @@ export class GameClient {
       else if (message.resumed) this.enterLobby('身份已恢复，当前未入座，可点击“加入房间”。')
       else this.lobby('join_room')
     } else if (message.type === 'table_update') {
-      if (this.state.status === 'lobby') return
+      if (['lobby', 'away'].includes(this.state.status)) return
       if (message.roomId !== ROOM) return
       const view = message.view
       if (this.state.view && BigInt(view.tableSeq) < BigInt(this.state.view.tableSeq)) return
@@ -222,10 +222,8 @@ export class GameClient {
       if (pending.type === 'action' ? message.requestId !== pending.requestId
         : message.requestTag !== pending.requestTag) return
       if (pending.type === 'leave_room') {
-        if (message.accepted) return this.enterLobby('已离桌，座位已释放。可再次加入房间。')
-        this.publish({ notice: message.error === 'action_not_allowed'
-          ? '本局已开始，暂时不能离桌；断线后仍保留座位并由服务器托管。'
-          : '离桌失败，正在同步牌桌。' })
+        if (message.accepted) return this.enterLobby('仍有玩家在桌时，AI 代管并自动准备；全员离开后关局，不能返回。', ROOM)
+        this.publish({ notice: '交给 AI 失败，正在同步牌桌。' })
         this.sync()
         return
       }
@@ -243,19 +241,25 @@ export class GameClient {
       const notice = errors[message.code] || '服务器无法处理请求，请重新连接后重试。'
       if (['session_expired', 'invalid_session'].includes(message.code)) {
         this.saveToken(null)
-        this.publish({ view: null })
+        this.publish({ view: null, roomId: null })
         this.disconnect(notice)
       } else if (this.pending?.type === 'action' && message.requestId === this.pending.requestId) {
         this.publish({ notice })
         this.sync()
       } else this.disconnect(notice)
     } else if (message.type === 'server_notice') {
+      if (message.code === 'room_closed') {
+        this.saveToken(null)
+        this.publish({ view: null, roomId: null })
+        this.disconnect('所有玩家均已离开，本局已关闭，无法重连恢复。可重新连接开始新对局。')
+        return
+      }
       this.publish({ notice: errors[message.code] || '服务器暂时出现问题，请稍后重试。' })
     }
   }
 
   disconnect(notice = this.state.view
-    ? '已断开连接，座位仍保留。可重新连接恢复身份。' : '已断开连接，可重新连接恢复身份。') {
+    ? '已断开连接；若仍有玩家在桌，可返回原座位。全员离开则本局关闭，无法恢复。' : '已断开连接，可重新连接恢复身份。') {
     const socket = this.socket
     this.socket = null // 忽略旧连接迟到的消息和 close 回调。
     clearTimeout(this.timer)

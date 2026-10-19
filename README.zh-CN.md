@@ -190,15 +190,22 @@ scripts/                  构建、测试、导出和维护脚本。
 
 单房间业务网络层已接入协议 v1，支持临时身份、入座、准备开局、动作和私有快照。
 实现原因、中文代码导读、MSVC 构建与网络联调步骤见[单房间服务端说明](docs/server-v1.md)。
-服务器已接入超时调度，玩家不操作或断线时会自动出牌、过牌并推进到结算；Vue 牌桌已接入这套状态流。
+服务器已接入超时调度，玩家不操作时自动出牌、过牌；离开或断线后由 AI 持续代管并自动准备下一局，保留原座位和累计分，不允许补位。最后一名真人离开或断线后立即关局，旧令牌失效，不能重连恢复。Vue 牌桌支持交给 AI 与返回尚未关闭的原座位。
 
-在仓库根目录配置并运行后端测试：
+Windows 下使用仓库内置 preset，将生成器固定为 Visual Studio 2022 x64，避免误用
+`PATH` 中靠前的旧编译器。需要 CMake 3.24+，并安装带 C++ 工具链的 Visual Studio
+2022。在仓库根目录运行：
 
 ```powershell
-cmake -S backend -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
+Push-Location backend
+cmake --preset windows-msvc-debug
+cmake --build --preset windows-msvc-debug
+ctest --preset windows-msvc-debug
+Pop-Location
 ```
+
+构建目录为 `backend/out/build/windows-msvc-debug/`。其他平台应显式使用支持 C++20 的较新编译器
+配置 `backend/`；本项目不支持 GCC 8。
 
 当前测试可执行文件：
 

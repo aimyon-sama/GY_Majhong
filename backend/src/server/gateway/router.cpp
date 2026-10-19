@@ -65,6 +65,7 @@ void Router::schedule_tick() {
             const auto update = room->table().tick();
             // 空闲 tick 不发快照，也不每 25ms 重复广播旧的存储告警。
             if (!update.deliveries.empty() || !update.error.empty()) self->deliver(*room, update);
+            self->start_ready_room(*room);
         }
         self->schedule_tick();
     });
@@ -114,7 +115,12 @@ void Router::hello(const WsSession::Ptr& connection, const protocol::HelloReques
 
 void Router::handle(const WsSession::Ptr& connection, const Session& session,
                     const protocol::JoinRoomRequest& request) {
-    auto* room = rooms_.find(request.room_id);
+    Room* room = nullptr;
+    try {
+        room = rooms_.get_or_create(request.room_id);
+    } catch (const std::exception&) {
+        return error(connection, ErrorCode::InternalError, request.request_tag);
+    }
     if (!room) return error(connection, ErrorCode::RoomNotFound, request.request_tag);
     if (session->room_id && *session->room_id != request.room_id) {
         return error(connection, ErrorCode::AlreadyInRoom, request.request_tag);
@@ -133,8 +139,9 @@ void Router::handle(const WsSession::Ptr& connection, const Session& session,
     }
     const auto update = room->leave(session);
     acknowledge(connection, protocol::LobbyOperation::LeaveRoom, request.request_tag, update);
-    // 离桌者已解除绑定，只向剩余在线玩家投递更新。
+    // 最后一个真人交接后立即关闭，不能等待下一次 tick 或重连。
     deliver(*room, update);
+    close_abandoned_room(*room);
 }
 
 Room* Router::seated_room(const WsSession::Ptr& connection, const Session& session,
@@ -160,11 +167,14 @@ void Router::handle(const WsSession::Ptr& connection, const Session& session,
     const auto update = room->table().ready(*session->player);
     acknowledge(connection, protocol::LobbyOperation::Ready, request.request_tag, update);
     deliver(*room, update);
-    if (update.accepted && room->ready_to_start()) {
-        const auto started = room->table().start();
-        // 准备成功和自动开局是两件事；开局写牌谱失败不能把准备回执改成失败。
-        if (!started.accepted) notice(*room, {"start_failed", "Unable to start round"});
-        deliver(*room, started);
+    if (update.accepted) start_ready_room(*room, true);
+}
+
+void Router::start_ready_room(Room& room, bool retry) {
+    if (const auto started = room.start_if_ready(retry)) {
+        // 先投递结算，再开下一局；开局失败不修改已经接受的准备回执。
+        if (!started->accepted) notice(room, {"start_failed", "Unable to start round"});
+        deliver(room, *started);
     }
 }
 
@@ -211,11 +221,22 @@ void Router::notice(Room& room, const protocol::ServerNotice& value) {
     for (const auto& connection : room.online_connections()) send(connection, protocol::encode_notice(value));
 }
 
+void Router::close_abandoned_room(Room& room) {
+    if (!room.abandoned()) return;
+    const auto members = room.members();
+    deliver(room, room.table().close());
+    // 主动交给 AI 的连接可能仍然打开，先通知再撤销全部令牌与绑定。
+    notice(room, {"room_closed", "All players left; this table is closed"});
+    for (const auto& session : members) sessions_.expire(session);
+    rooms_.close(Room::id);
+}
+
 void Router::on_close(WsSession::Ptr connection) {
     const auto session = sessions_.disconnect(connection);
     if (!session || !session->room_id || !session->player) return;
     if (auto* room = rooms_.find(*session->room_id)) {
         deliver(*room, room->table().disconnect(*session->player));
+        close_abandoned_room(*room);
     }
 }
 } // namespace gymj::server::gateway

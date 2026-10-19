@@ -66,7 +66,7 @@ flowchart TD
 
 ## 4. 开局与连接关闭的顺序
 
-第四名玩家准备后，Room 检查四人是否全部入座、在线且准备；满足条件才调用
+真人准备后或定时器推进后，Room 检查四个座位是否全部入座且准备（含 AI）；满足条件才调用
 `Table::start()`。开始后 Table 会重置准备状态，重复准备不会覆盖进行中的牌局。
 
 准备成功与自动开局失败分开报告：例如牌谱写入失败时，已经成功的准备回执仍是
@@ -88,9 +88,11 @@ flowchart TD
 在仓库根目录运行：
 
 ```powershell
-cmake -S backend -B build-web-vendored -G "Visual Studio 17 2022" -A x64
-cmake --build build-web-vendored --config Debug --parallel 4
-ctest --test-dir build-web-vendored -C Debug --output-on-failure
+Push-Location backend
+cmake --preset windows-msvc-debug
+cmake --build --preset windows-msvc-debug
+ctest --preset windows-msvc-debug
+Pop-Location
 ```
 
 CMake 检测到 Node.js 22+ 时自动注册四组真实 WebSocket 测试，不需要安装 npm 包。
@@ -108,13 +110,13 @@ CMake 检测到 Node.js 22+ 时自动注册四组真实 WebSocket 测试，不�
 也可直接运行：
 
 ```powershell
-node scripts/test-game.mjs build-web-vendored/app/Debug/gymj_server.exe
-node scripts/test-timeout.mjs build-web-vendored/app/Debug/gymj_server.exe
+node scripts/test-game.mjs backend/out/build/windows-msvc-debug/app/Debug/gymj_server.exe
+node scripts/test-timeout.mjs backend/out/build/windows-msvc-debug/app/Debug/gymj_server.exe
 ```
 
 网络脚本使用系统临时目录中的独立工作目录，退出后只清理自己创建的目录。
 
-手动调试：运行 `build-web-vendored/app/Debug/gymj_server.exe`，打开
+手动调试：运行 `backend/out/build/windows-msvc-debug/app/Debug/gymj_server.exe`，打开
 `frontend/public/network-test.html`。四个独立标签页分别连接并发送 `hello`，点击
 “加入 room-001”和“准备”，第四人准备后即可查看各自快照。发送动作时从本人最新
 快照复制 `roundId`、`promptId` 和一个 `availableActions`，使用新的 `requestId`。
@@ -135,7 +137,7 @@ node scripts/test-timeout.mjs build-web-vendored/app/Debug/gymj_server.exe
 默认操作期限保持 8000 毫秒，可在启动时调整：
 
 ```powershell
-build-web-vendored/app/Debug/gymj_server.exe 8080 --action-timeout-ms 15000
+backend/out/build/windows-msvc-debug/app/Debug/gymj_server.exe 8080 --action-timeout-ms 15000
 ```
 
 参数 `--seed N` 固定牌桌随机种子，供本地复现和自动化测试使用；每局再由牌桌随机序列
@@ -144,28 +146,50 @@ build-web-vendored/app/Debug/gymj_server.exe 8080 --action-timeout-ms 15000
 
 ## 7. 本阶段边界
 
-目前固定一个房间、四个座位，关闭网页保留原座位；身份保存在内存中，服务重启后失效。
-已支持等待准备或结算后的主动离桌和座位释放。动态建房、房间回收和会话过期尚未实现。Vue 牌桌已接入协议 v1，连接与联调步骤见
+目前固定一个房间、四个座位；仍有真人留桌时，离开者保留原座位。身份保存在内存中，服务重启或全员离开关局后失效。
+主动离开或断线后由 AI 持续代管，保留原座位并禁止补位。已支持全员离开后的牌桌回收，动态建房尚未实现；本阶段不增加禁止玩家另开对局的规则。Vue 牌桌已接入协议 v1，连接与联调步骤见
 [前端说明](../frontend/README.md)。
 
-超时托管只负责推进当前小局；结束后仍需四名在线玩家重新准备才能开始下一局。
+AI 在局外自动准备；四个座位准备齐后正常开局，至少有一名真人在桌时才继续；全员离开立即关闭。真人回归后恢复控制，下一次结算后需手动准备。
 
-## 8. 主动离桌
+## 8. 持续 AI 代管与返回
 
-`leave_room` 经 Router 验证当前身份和房间后交给 `Room::leave()`，再由 `Table::leave()`
-检查阶段并释放座位。对局中拒绝离桌，关闭网页仍是断线，保留座位和托管。
+`leave_room` 经 Router 验证身份和房间后交给 `Room::leave()`，再由 `Table::leave()`
+切换为 AI 代管。等待、对局、结算阶段均允许离开，行为与当前连接断线后的代管一致。
+Room 保留投递索引及会话中的房间、玩家绑定，不释放座位、不清零分数、不清除回执。
 
-成功后 Room 删除投递索引及会话中的房间、玩家绑定；认证令牌继续有效。离桌者收到成功
-回执，剩余在线玩家收到空座位快照。未入座时重复离桌不修改牌桌，离桌者的旧连接关闭也
-不能影响新占座者。新入座分配新的内部玩家 ID。
+成功后先返回回执，再向仍由真人控制的座位发送状态。代管中的连接不再接收主动牌桌广播，
+也不能通过 `ready` 或 `action` 操纵座位；原身份仍可请求自己的快照。
+客户端进入 `away` 状态，点击“返回原座位”发送 `join_room`，或通过 `hello` 恢复令牌，
+即可返回原座位。返回保留当前小局、累计分、请求水位和操作期限。
 
-离桌者累计分清零，其他玩家累计分保留。全员准备取消，上一局状态移除，牌桌返回等待准备，
-避免新名字对应旧手牌或结算。已完成牌谱不改写；局号、桌序号以及牌谱文件继续沿用。
-四人都离桌后，固定房间保留为空桌，可直接重新加入；本阶段不实现自动踢出或房间销毁。
+`SeatView.connected` 表示该座位当前是否由连接中的真人控制。已占用且 `connected: false`
+的座位由 AI 代管（主动交给 AI 时 WebSocket 本身可以仍然连接）。AI 采用现有超时策略：
+截止后摸切、碰后切末张、响应过牌。结算时 AI 座位自动准备，在线真人等待手动准备。
+`Router` 每次定时器推进后检查准备状态，仍有真人在桌时能连续开始之后的小局；全 AI 桌不允许开局。
+开局存储失败时记录本次尝试的桌序号，避免每 25ms 重试并重复告警；状态变化或真人
+再次准备时允许重试。结算快照先于下一局开局快照投递。
 
-`gymj_web_leave_tests` 覆盖认证与伪造字段、重复离桌、空座位广播、第五人补位、旧身份访问
-拒绝、离桌后恢复未入座身份、对局中拒绝离桌和空桌再次开局。可单独运行：
+`gymj_web_leave_tests` 覆盖认证、伪造字段、重复交接、第五人不能补位、原连接返回、
+对局中离开、真人与 AI 续局、最后一人主动离开/断线后关局、旧令牌恢复拒绝、等待桌关闭、牌谱终止以及新对局不受旧连接回调影响：
 
 ```powershell
-node scripts/test-leave.mjs build-web-vendored/app/Debug/gymj_server.exe
+node scripts/test-leave.mjs backend/out/build/windows-msvc-debug/app/Debug/gymj_server.exe
 ```
+
+## 9. 全员离开后关闭
+
+`Room::abandoned()` 按座位的真人控制状态判断，不按 WebSocket 数量判断：主动交给 AI
+但仍开着页面也算离开；从未入座的大厅连接不阻止关局。只要曾有玩家入座且已无真人留桌，
+Router 就在处理最后一次 `leave_room` 或当前连接断线时立即关闭，不等待下一次定时器。
+等待准备、对局中和结算后均适用；空房初始化本身不会触发关局。
+
+关闭过程先停止 Table 的操作与超时推进，在原 JSONL 末尾追加一次 `table_closed`：
+`reason: "all_players_left"`、`round_id`、`table_seq`、`round_in_progress` 和 `total_points`。
+未完成的小局不生成 `round_finished` 或新的计分；累计分仅含此前已结算的部分。
+随后通知仍打开的旧连接 `room_closed`，撤销全部旧令牌、认证连接及房间/座位绑定，销毁牌桌。
+牌谱写入失败不阻止关局，仍使用现有存储错误通知。
+
+`RoomManager` 仅在新的入房请求到来时重建固定房间，使用新的牌谱与零累计分。
+旧令牌不能恢复；旧连接迟到的关闭回调没有有效会话绑定，不会影响新桌。
+这不禁止用户创建新身份开始新对局。

@@ -25,6 +25,8 @@ public:
                 const common::RoundTransition& transition,
                 const std::array<std::int64_t, 4>& total_points);
 
+    bool close(std::uint64_t table_seq, const std::array<std::int64_t, 4>& total_points);
+
 private:
     bool write_line(std::string_view line);
 
@@ -34,6 +36,7 @@ private:
     std::uint64_t round_id_ = 0;
     std::uint64_t last_seq_ = 0;
     bool settled_ = true;
+    bool closed_ = false;
 };
 
 }

@@ -28,7 +28,7 @@ public:
     // id 为 0 表示新玩家；已入座 ID 表示重复入座或断线重连。
     TableUpdate join(PlayerInfo player);
     TableUpdate ready(PlayerInfo player);
-    TableUpdate leave(PlayerInfo player); // 仅局外允许，释放座位并清理离桌者累计分。
+    TableUpdate leave(PlayerInfo player); // 交给 AI，保留身份、座位和累计分。
     TableUpdate start();
     TableUpdate start(TimePoint now); // 显式传入时间，便于测试倒计时边界。
     // 固定牌山入口用于构造可重复的规则测试。
@@ -38,6 +38,7 @@ public:
 
     TableUpdate submit(PlayerInfo player, const gymj::common::Command command);
     TableUpdate submit(PlayerInfo player, common::Command command, TimePoint now);
+    TableUpdate close(); // 全员离开后终止牌桌；关闭后不能恢复或继续推进。
     TableUpdate tick();
     TableUpdate tick(TimePoint now);
     // 未入座身份返回空值，合法身份只能读取自身视角。
@@ -78,6 +79,7 @@ private:
     std::unique_ptr<gymj::room::Round> round_;
     std::unique_ptr<storage::Replay> replay_;
     std::mt19937 rng_;
+    bool closed_ = false;
     common::TableStage stage_ = common::TableStage::WaitingReady;
     std::uint64_t round_id_ = 0;
     std::uint64_t table_seq_ = 0;

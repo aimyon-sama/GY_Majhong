@@ -53,6 +53,19 @@ void test_connection_ownership() {
         "unknown token must not create an identity");
     require(!manager.current(unknown), "failed hello must leave connection unauthenticated");
     require(manager.current(second) == b.session, "other session stays isolated");
+    a.session->room_id = "room-001";
+    a.session->player = gymj::common::PlayerInfo{"same name", 123};
+    manager.expire(a.session);
+    require(!a.session->room_id && !a.session->player && a.session->connection.expired(),
+        "expiry clears room, seat and transport bindings");
+    require(!manager.current(offline_replacement) && !manager.disconnect(offline_replacement),
+        "expired transport cannot act and its late close is harmless");
+    require(manager.authenticate(unknown, {{}, a.session->token}).error == ErrorCode::SessionExpired,
+        "expired token cannot recover the old game");
+    require(manager.current(second) == b.session, "expiring one identity leaves others usable");
+    require(manager.authenticate(unknown, {"fresh", {}}).session != nullptr,
+        "expiry still permits a fresh identity for a new game");
+
 }
 } // namespace
 

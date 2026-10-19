@@ -83,4 +83,14 @@ SessionManager::Session SessionManager::disconnect(const Connection& connection)
     if (session) session->connection.reset();
     return session;
 }
+void SessionManager::expire(const Session& session) {
+    tokens_.erase(session->token);
+    for (auto it = connections_.begin(); it != connections_.end();) {
+        if (it->second == session) it = connections_.erase(it);
+        else ++it;
+    }
+    session->connection.reset();
+    session->room_id.reset();
+    session->player.reset();
+}
 } // namespace gymj::server

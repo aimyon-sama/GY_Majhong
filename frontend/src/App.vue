@@ -22,10 +22,10 @@ const seats = computed(() => view.value ? positions.map((position, offset) => {
 }) : [])
 const stageNames = { waiting_ready: '等待准备', playing: '对局中', round_finished: '本局结束' }
 const statusNames = { idle: '未连接', connecting: '连接中', authenticating: '确认身份中',
-  syncing: '同步牌桌中', online: '已连接', lobby: '已连接 · 未入座', disconnected: '已断开' }
+  syncing: '同步牌桌中', online: '已连接', lobby: '已连接 · 未入座', away: 'AI 代管中', disconnected: '已断开' }
 const canReady = computed(() => !locked.value && view.value && view.value.tableStage !== 'playing'
   && !view.value.seats[view.value.selfSeat].ready)
-const canLeave = computed(() => !locked.value && view.value && view.value.tableStage !== 'playing')
+const canLeave = computed(() => !locked.value && view.value)
 // 组件使用的结果仅由服务端结算字段派生，不在前端计算分数。
 const result = computed(() => {
   const current = view.value
@@ -78,6 +78,7 @@ onUnmounted(() => { clearInterval(timer); client.disconnect() })
         <button type="submit" :disabled="connected || !nickname.trim()">{{ state.status === 'disconnected' ? '重新连接' : '连接并进入' }}</button>
         <button v-if="connected" type="button" @click="client.disconnect()">断开连接</button>
         <button v-if="state.status === 'lobby'" type="button" :disabled="state.pending" @click="client.join()">加入房间</button>
+        <button v-if="state.status === 'away'" type="button" :disabled="state.pending" @click="client.join()">返回原座位</button>
       </form>
       <p>此标签页会保存临时身份，刷新或重新连接可恢复原座位。服务重启后需重新进入。</p>
     </section>
@@ -87,9 +88,8 @@ onUnmounted(() => { clearInterval(timer); client.disconnect() })
       <p v-if="state.status !== 'online'">牌桌尚未同步，操作暂不可用。</p>
       <section aria-labelledby="table-title">
         <h2 id="table-title">牌桌 · {{ state.roomId }}</h2>
-        <button type="button" :disabled="!canLeave" @click="client.leave()">离桌并释放座位</button>
-        <p>等待准备或结算后可离桌；离桌清除自己的累计分，其他玩家保留累计分并重新准备。</p>
-        <p v-if="view.tableStage === 'playing'">对局中不能离桌，断开连接后仍保留座位并由服务器托管。</p>
+        <button type="button" :disabled="!canLeave" @click="client.leave()">离开并交给 AI</button>
+        <p>仍有玩家在桌时，离开后由 AI 代管并自动准备，保留座位和累计分，禁止补位。全员离开后本局关闭，无法重连恢复。</p>
         <p>第 {{ view.roundId }} 局 · {{ stageNames[view.tableStage] }} · 牌山剩余 {{ view.tilesRemaining }} 张</p>
         <p>我的操作倒计时：{{ state.status !== 'online' ? '等待同步' : remainingMs === null ? '无' : `${Math.ceil(remainingMs / 1000)} 秒` }}</p>
         <p v-if="view.pendingAction">待响应的牌：{{ tileName(view.pendingAction.tile) }}</p>

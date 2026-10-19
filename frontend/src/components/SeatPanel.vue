@@ -7,7 +7,7 @@ defineProps({ seat: Object, position: String, dealer: Boolean, active: Boolean, 
   <fieldset>
     <legend>{{ position }} · {{ seat.occupied ? seat.nickname : '空座' }} {{ dealer ? '（庄家）' : '' }}</legend>
     <p v-if="seat.occupied">
-      {{ seat.connected ? '在线' : '离线' }} · {{ seat.ready ? '已准备' : '未准备' }}
+      {{ seat.connected ? '在线' : 'AI 代管' }} · {{ seat.ready ? '已准备' : '未准备' }}
       · 累计分：{{ points }} <strong v-if="active">· 当前行动</strong>
     </p>
     <p v-if="!self">手牌：{{ seat.handSize }} 张 <span aria-hidden="true">{{ '▧ '.repeat(seat.handSize) }}</span></p>

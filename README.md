@@ -192,16 +192,24 @@ in `frontend/`. See the [frontend guide](frontend/README.md) for four-player tes
 The single-room server now connects protocol v1 to temporary sessions, joining, readiness,
 actions, and private snapshots. See the [single-room server guide (Chinese)](docs/server-v1.md)
 for design explanations, MSVC build commands, and network tests. The server now schedules
-automatic discards and passes for idle or disconnected players through round settlement.
+automatic discards and passes for idle players. Away or disconnected seats remain assigned to their original players, with AI control and automatic readiness across rounds; replacements cannot take those seats. Once the last human leaves or disconnects, the table closes and its old session tokens can no longer restore it.
 The Vue table now renders this server-driven state flow.
 
-Configure and run the backend test suite from the repository root:
+On Windows, use the checked-in preset to pin the generator to Visual Studio
+2022 x64 instead of whichever compiler happens to be first on `PATH`. It
+requires CMake 3.24+ and a Visual Studio 2022 installation with C++ support.
+From the repository root:
 
 ```powershell
-cmake -S backend -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
+Push-Location backend
+cmake --preset windows-msvc-debug
+cmake --build --preset windows-msvc-debug
+ctest --preset windows-msvc-debug
+Pop-Location
 ```
+
+The build tree is `backend/out/build/windows-msvc-debug/`. On other platforms, configure
+`backend/` explicitly with a modern C++20 compiler; GCC 8 is not supported.
 
 Current test executables:
 

@@ -162,9 +162,20 @@ bool Replay::write_line(std::string_view line) {
     return true;
 }
 
+bool Replay::close(std::uint64_t table_seq, const std::array<std::int64_t, 4>& total_points) {
+    if (closed_) return error_.empty();
+    // 中止不伪造流局或小分结算，保留最后已结算的累计分。
+    const bool saved = write_line(json{{"type", "table_closed"}, {"reason", "all_players_left"},
+        {"round_id", round_id_}, {"table_seq", table_seq}, {"round_in_progress", !settled_},
+        {"total_points", total_points}}.dump());
+    closed_ = true;
+    stream_.close();
+    return saved;
+}
+
 bool Replay::start_round(std::uint64_t round_id, const common::RoundConfig& config,
                          const std::array<common::PlayerInfo, 4>& players, bool fixed_wall) {
-    if (!error_.empty()) return false;
+    if (closed_ || !error_.empty()) return false;
     if (!settled_ || round_id != round_id_ + 1) throw std::logic_error("invalid replay round start");
     auto seats = json::array();
     for (int seat = 0; seat < 4; ++seat) {
@@ -185,7 +196,7 @@ bool Replay::start_round(std::uint64_t round_id, const common::RoundConfig& conf
 void Replay::record(std::uint64_t round_id, std::uint64_t table_seq,
                     const common::RoundTransition& transition,
                     const std::array<std::int64_t, 4>& total_points) {
-    if (!transition.accepted || !error_.empty()) return;
+    if (closed_ || !transition.accepted || !error_.empty()) return;
     if (settled_ || round_id != round_id_ || transition.seq_before != last_seq_
         || transition.seq_after != last_seq_ + 1) {
         throw std::logic_error("out-of-order replay transition");

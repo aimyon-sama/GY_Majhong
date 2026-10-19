@@ -21,6 +21,8 @@ public:
 
 private:
     void schedule_tick();
+    void start_ready_room(Room& room, bool retry = false);
+    void close_abandoned_room(Room& room);
     using Session = SessionManager::Session;
     void hello(const WsSession::Ptr& connection, const protocol::HelloRequest& request);
     void handle(const WsSession::Ptr&, const Session&, const protocol::JoinRoomRequest&);

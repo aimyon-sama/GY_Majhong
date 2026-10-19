@@ -104,51 +104,96 @@ struct Fixture {
     }
 };
 
-void test_leave_and_reuse() {
+void test_leave_and_ai_takeover() {
     Fixture f;
     const auto departed = f.players[0];
     const auto before = f.view().table_seq;
     const auto left = f.table.leave(departed);
     require(left.accepted && left.table_seq == before + 1 && left.deliveries.size() == 3,
-        "leave publishes vacancy only to remaining players");
-    require(!f.table.snapshot(departed) && !f.table.ready(departed).accepted
-        && !f.table.join(departed).accepted, "departed seat identity no longer authorizes access");
-    require(!f.view(1).seats[0].occupied && f.view(1).seats[0].player_name.empty(), "vacated seat is empty");
-    for (const auto& seat : f.view(1).seats) require(!seat.ready, "roster change clears all readiness");
-    f.players[0] = *f.table.join(PlayerInfo{"replacement"}).assigned_player;
-    require(f.players[0].id != departed.id && f.view().self_seat == 0, "new player reuses seat with new identity");
-    require(!f.table.leave(departed).accepted && f.table.snapshot(f.players[0]).has_value(),
-        "late old leave cannot evict replacement");
-    for (const auto& player : f.players) f.table.ready(player);
+        "leave publishes AI takeover only to remaining players");
+    require(f.view().seats[0].occupied && !f.view().seats[0].connected && f.view().seats[0].ready,
+        "AI retains original seat and automatically prepares");
+    require(!f.table.join(PlayerInfo{"replacement"}).accepted, "AI seat cannot be replaced");
+    require(!f.table.ready(departed).accepted, "away client cannot control AI seat before returning");
+    require(f.table.leave(departed).table_seq == left.table_seq, "repeated leave is idempotent");
+    for (const auto& seat : f.view().seats) require(seat.ready, "takeover preserves other readiness");
+
     std::array<std::vector<Tile>, 4> hands{};
     hands[0] = {m(1), m(2), m(3), m(1), m(2), m(3), m(6), m(7), m(8), m(6), m(7), m(8), m(5)};
-    require(f.table.start(wall_with(hands, {m(5), s(5)}), f.now).accepted, "replacement can start");
+    require(f.table.start(wall_with(hands, {m(5), s(5)}), f.now).accepted,
+        "AI counts as a ready player when starting");
     const auto playing = f.view();
-    require(!f.table.leave(f.players[0]).accepted && f.view().table_seq == playing.table_seq
-        && f.view().deadline == playing.deadline, "active leave rejection preserves turn and deadline");
+    const auto returned = f.table.join(departed);
+    require(returned.assigned_player == departed && f.view().self_seat == 0
+        && f.view().deadline == playing.deadline, "return restores original seat without extending deadline");
+    require(f.table.leave(departed).accepted && f.view().deadline == playing.deadline
+        && f.view().own_tiles.hand == playing.own_tiles.hand, "leave during play preserves hand and deadline");
+    require(!f.table.submit(departed, f.command(0, PlayerActionType::Tsumo, null_tile), f.now).accepted,
+        "away client cannot submit actions");
+    f.table.join(departed);
     f.act(0, PlayerActionType::Tsumo, null_tile);
     const auto finished = f.view();
-    require(finished.table_stage == TableStage::RoundFinished && finished.total_points[0] > 0,
-        "winning round has cumulative points");
+    require(finished.total_points[0] > 0, "winning round has cumulative points");
     const auto log = read_replay(f.table);
     const auto path = f.table.replay().path();
-    require(f.table.leave(f.players[0]).accepted, "settled winner may leave");
-    auto waiting = f.view(1);
-    require(waiting.table_stage == TableStage::WaitingReady && !waiting.round_result
-        && !waiting.point_result && waiting.own_tiles.hand.empty() && !waiting.deadline,
-        "old hand, result and deadline removed after roster change");
-    require(waiting.total_points[0] == 0 && waiting.total_points[1] == finished.total_points[1],
-        "departed score cleared while remaining score retained");
-    require(read_replay(f.table) == log, "leaving does not overwrite completed replay");
-    for (int seat = 1; seat < 4; ++seat) require(f.table.leave(f.players[seat]).accepted, "all players can leave");
-    require(f.table.tick(f.now + 1s).deliveries.empty(), "empty table has no timeout work");
-    for (auto& player : f.players) {
-        player = *f.table.join(PlayerInfo{"fresh"}).assigned_player;
-        f.table.ready(player);
+    for (int seat = 0; seat < 3; ++seat) require(f.table.leave(f.players[seat]).accepted, "players may hand over to AI while a human remains");
+    require(f.view().total_points == finished.total_points && f.view().round_result.has_value(),
+        "takeover retains cumulative scores and settlement");
+    require(read_replay(f.table) == log, "takeover does not rewrite completed replay");
+    for (int seat = 0; seat < 3; ++seat) require(f.view().seats[seat].occupied && !f.view().seats[seat].connected && f.view().seats[seat].ready,
+        "AI players prepare for next round");
+    require(!f.table.start(f.now).accepted, "remaining human must still prepare");
+    f.table.ready(f.players[3]);
+    require(f.table.start(f.now).accepted, "human and AI players start next round");
+    for (int step = 0; step < 500 && f.view().table_stage == TableStage::Playing; ++step) {
+        f.now += 100ms;
+        const auto update = f.table.tick(f.now);
+        require(update.accepted && update.error.empty(),
+            "timeout advances the mixed human and AI table");
     }
-    require(f.view().total_points == std::array<std::int64_t, 4>{}, "empty table has no inherited scores");
-    require(f.table.start(f.now).accepted && f.view().round_id == finished.round_id + 1
-        && f.table.replay().path() == path, "empty table reuses continuous round IDs and replay");
+    const auto ai_finished = f.view();
+    require(ai_finished.table_stage == TableStage::RoundFinished && ai_finished.round_id == 2,
+        "AI completes the next round");
+    for (int seat = 0; seat < 4; ++seat) {
+        require(ai_finished.seats[seat].ready == (seat < 3), "only AI automatically prepares after settlement");
+        require(ai_finished.total_points[seat] == finished.total_points[seat]
+            + ai_finished.point_result->delta_result[seat], "AI scores accrue to original player");
+    }
+    f.table.ready(f.players[3]);
+    require(f.table.start(f.now).accepted && f.view().round_id == 3
+        && f.table.replay().path() == path, "AI continues across rounds in the same replay");
+    const auto ai_view = f.view();
+    require(f.table.join(departed).assigned_player == departed && f.view().self_seat == 0
+        && f.view().total_points == ai_view.total_points && f.view().deadline == ai_view.deadline,
+        "original player can take over a later AI round with scores intact");
+    require(!f.table.join(PlayerInfo{"replacement"}).accepted, "later rounds still forbid replacement");
+}
+
+void test_close_is_terminal() {
+    for (const bool playing : {false, true}) {
+        Fixture f;
+        if (playing) require(f.table.start(f.now).accepted, "start close fixture");
+        const auto command = f.command(0, PlayerActionType::Discard, m(1));
+        for (const auto& player : f.players) f.table.leave(player);
+        require(!f.table.start(f.now).accepted, "all AI cannot start a round");
+        const auto before = read_replay(f.table);
+        const auto closed = f.table.close();
+        require(closed.accepted && closed.deliveries.empty(), "close stops table without publishing hands");
+        require(!f.table.snapshot(f.players[0]) && !f.table.join(f.players[0]).accepted
+            && !f.table.join(PlayerInfo{"new"}).accepted && !f.table.ready(f.players[0]).accepted
+            && !f.table.submit(f.players[0], command, f.now).accepted
+            && !f.table.leave(f.players[0]).accepted && !f.table.start(f.now).accepted,
+            "closed table denies all recovery and mutation");
+        const auto records = read_replay(f.table);
+        require(records.size() == before.size() + 1 && records.back()["type"] == "table_closed"
+            && records.back()["reason"] == "all_players_left"
+            && records.back()["round_in_progress"] == playing,
+            "replay distinguishes aborted round from normal settlement");
+        require(records.back()["total_points"] == std::array<std::int64_t, 4>{},
+            "closure does not invent a settlement");
+        require(f.table.close().table_seq == closed.table_seq && f.table.tick(f.now + 1h).deliveries.empty()
+            && read_replay(f.table) == records, "close is idempotent and all later ticks are silent");
+    }
 }
 
 void test_identity_and_lifecycle() {
@@ -170,10 +215,10 @@ void test_identity_and_lifecycle() {
     const auto before = f.view().table_seq;
     require(f.table.join(f.players[0]).accepted && f.view().table_seq == before, "known join is idempotent");
     require(f.table.disconnect(f.players[1]).accepted, "disconnect known player");
-    require(!f.table.start(f.now).accepted, "disconnected player prevents start");
+    require(f.view().seats[1].ready && !f.view().seats[1].connected, "AI prepares disconnected seat");
     require(!f.table.ready(f.players[1]).accepted, "offline ready rejected");
     require(f.table.join(f.players[1]).accepted, "same identity reconnects");
-    require(!f.table.start(f.now).accepted, "disconnect cleared readiness");
+    require(f.view().seats[1].ready, "return preserves readiness already submitted by AI");
     f.table.ready(f.players[1]);
     require(f.table.start(f.now).accepted, "four ready players start");
     require(f.view().round_stage == RoundStage::WaitingDiscard, "start automatically draws for dealer");
@@ -558,7 +603,8 @@ void test_replay_metadata_and_storage_errors() {
 int main() {
     try {
         test_identity_and_lifecycle();
-        test_leave_and_reuse();
+        test_leave_and_ai_takeover();
+        test_close_is_terminal();
         test_start_and_visibility();
         test_request_validation_and_retries();
         test_parallel_claims_and_settlement();

@@ -39,9 +39,10 @@ public:
     bool superseded(const Connection& connection) const;
     // 仅当前连接断开时返回身份，旧连接的迟到关闭回调不得把新连接踢下线。
     Session disconnect(const Connection& connection);
+    void expire(const Session& session); // 撤销令牌及该身份的全部连接、座位绑定。
 
 private:
-    // v1 身份仅保存在进程内，重启失效；主动离桌保留身份，会话过期策略另行实现。
+    // v1 身份仅保存在进程内，重启失效；仍有人在桌时保留身份与座位，全员离开后失效。
     std::unordered_map<std::string, Session> tokens_;
     std::unordered_map<const gateway::WsSession*, Session> connections_;
 };
