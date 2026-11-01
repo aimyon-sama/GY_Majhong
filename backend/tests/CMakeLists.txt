@@ -122,7 +122,12 @@ if(GYMJ_NODE_EXECUTABLE)
             "${PROJECT_SOURCE_DIR}/../scripts/test-timeout.mjs" "$<TARGET_FILE:gymj_server>")
         add_test(NAME gymj_web_leave_tests COMMAND "${GYMJ_NODE_EXECUTABLE}"
             "${PROJECT_SOURCE_DIR}/../scripts/test-leave.mjs" "$<TARGET_FILE:gymj_server>")
-        set_tests_properties(gymj_web_transport_tests gymj_web_game_tests gymj_web_timeout_tests gymj_web_leave_tests PROPERTIES TIMEOUT 60)
+        add_test(NAME gymj_web_multi_room_tests COMMAND "${GYMJ_NODE_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/../scripts/test-multi-room.mjs" "$<TARGET_FILE:gymj_server>")
+        add_test(NAME gymj_web_frontend_tests COMMAND "${GYMJ_NODE_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/../scripts/test-frontend.mjs" "$<TARGET_FILE:gymj_server>")
+        set_tests_properties(gymj_web_transport_tests gymj_web_game_tests gymj_web_timeout_tests
+            gymj_web_leave_tests gymj_web_multi_room_tests gymj_web_frontend_tests PROPERTIES TIMEOUT 60)
     else()
         message(STATUS "Node.js 22+ required: skipping WebSocket integration tests")
     endif()

@@ -17,7 +17,7 @@ export function makeView(scene, nickname, roundId = '1') {
   const finished = scene.endsWith('_result')
   const view = {
     selfSeat: 0,
-    roomId: 'room-001',
+    roomId: '100001',
     roundId,
     tableStage: scene === 'waiting_ready' ? 'waiting_ready' : finished ? 'round_finished' : 'playing',
     dealerSeat: 0,

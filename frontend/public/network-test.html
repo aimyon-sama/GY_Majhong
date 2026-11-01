@@ -44,7 +44,7 @@
   </form>
   <p>先发送 hello，再发送 join_room、ready 或 snapshot。服务端可能连续推送多条快照；会话令牌会保存到当前标签页，记录中会隐藏令牌。</p>
   <p>
-    <button id="join" type="button" disabled>加入 room-001</button>
+    <button id="join" type="button" disabled>加入 100001</button>
     <button id="ready" type="button" disabled>准备</button>
     <button id="snapshot" type="button" disabled>请求快照</button>
     <button id="resume" type="button" disabled>恢复当前身份</button>
@@ -124,7 +124,7 @@
   };
   byId('ping').onclick = () => send({v: 1, type: 'ping'});
   for (const [id, type] of [['join', 'join_room'], ['ready', 'ready'], ['snapshot', 'snapshot']]) {
-    byId(id).onclick = () => send({v: 1, type, roomId: 'room-001', requestTag: String(++serial)});
+    byId(id).onclick = () => send({v: 1, type, roomId: '100001', requestTag: String(++serial)});
   }
   byId('resume').onclick = () => send({v: 1, type: 'hello', sessionToken});
   byId('disconnect').onclick = () => { update('closing'); socket?.close(1000, 'user disconnected'); };

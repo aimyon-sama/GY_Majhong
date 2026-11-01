@@ -5,7 +5,7 @@ import path from 'node:path';
 import { startServer, waitEvent } from './lib/test-server.mjs';
 
 const server = await startServer(process.argv[2]);
-const roomId = 'room-001';
+const roomId = '100001';
 const players = [];
 const tokens = [];
 const sync = () => Promise.all(players.map(player => player.barrier()));
@@ -60,7 +60,7 @@ try {
     assert.equal(welcome.resumed, false);
     tokens.push(welcome.sessionToken);
     assert.equal((await player.request({ type: 'ready', roomId })).code, 'not_seated');
-    assert.equal((await player.request({ type: 'join_room', roomId: 'missing' })).code, 'room_not_found');
+    assert.equal((await player.request({ type: 'join_room', roomId: '999999' })).code, 'room_not_found');
     const before = player.history.length;
     assert.equal((await player.request({ type: 'join_room', roomId })).accepted, true);
     await player.barrier();
@@ -103,7 +103,7 @@ try {
   }
   assert.equal((await players[3].request({ type: 'ready', roomId })).accepted, false);
   assert.equal((await fifth.request({ type: 'join_room', roomId })).error, 'room_full');
-  assert.equal((await players[0].request({ type: 'snapshot', roomId: 'other' })).code, 'room_mismatch');
+  assert.equal((await players[0].request({ type: 'snapshot', roomId: '999999' })).code, 'room_mismatch');
   const snapshotCounts = players.map(p => p.history.filter(m => m.type === 'table_update').length);
   assert.equal((await players[0].request({ type: 'snapshot', roomId })).accepted, true);
   await sync();

@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 #include <gymj/common/schema/table_state.hpp>
 #include <nlohmann/json_fwd.hpp>
@@ -37,6 +38,9 @@ enum class ErrorCode {
     SessionExpired,
     NotSeated,
     RoomNotFound,
+    InvalidRoomId,
+    RoomExists,
+    RoomLimitReached,
     RoomMismatch,
     RoomFull,
     AlreadyInRoom,
@@ -71,6 +75,15 @@ struct JoinRoomRequest {
     std::string room_id;
 };
 
+struct CreateRoomRequest {
+    std::string request_tag;
+    std::string room_id;
+};
+
+struct ListRoomsRequest {
+    std::string request_tag;
+};
+
 struct ReadyRequest {
     std::string request_tag;
     std::string room_id;
@@ -94,6 +107,8 @@ struct ActionRequest {
 using ClientRequest = std::variant<
     HelloRequest,
     PingRequest,
+    ListRoomsRequest,
+    CreateRoomRequest,
     JoinRoomRequest,
     LeaveRoomRequest,
     ReadyRequest,
@@ -122,6 +137,7 @@ struct Welcome {
 };
 
 enum class LobbyOperation {
+    CreateRoom,
     JoinRoom,
     LeaveRoom,
     Ready,
@@ -148,12 +164,20 @@ struct ServerNotice {
     std::string message;
 };
 
+struct RoomListEntry {
+    std::string room_id;
+    std::size_t players = 0;
+    std::size_t connected = 0;
+    bool playing = false;
+};
+
 Json encode_welcome(const Welcome& value);
 Json encode_pong(const PingRequest& request);
 Json encode_ack(const LobbyAck& value);
 Json encode_ack(const ActionAck& value);
 Json encode_error(const ProtocolError& value);
 Json encode_notice(const ServerNotice& value);
+Json encode_room_list(std::string_view request_tag, const std::vector<RoomListEntry>& rooms);
 
 // Delivery already contains the recipient-filtered PlayerView and events.
 // The encoder must not accept RoundState or unfiltered authoritative data.

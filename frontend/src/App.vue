@@ -8,6 +8,7 @@ import { GameClient, savedAddress } from './net/game-client.js'
 
 const address = ref(savedAddress())
 const nickname = ref('玩家')
+const roomId = ref('100001')
 const selected = ref(null)
 const client = new GameClient({ onChange: value => { state.value = value } })
 const state = shallowRef(client.state)
@@ -26,6 +27,7 @@ const statusNames = { idle: '未连接', connecting: '连接中', authenticating
 const canReady = computed(() => !locked.value && view.value && view.value.tableStage !== 'playing'
   && !view.value.seats[view.value.selfSeat].ready)
 const canLeave = computed(() => !locked.value && view.value)
+const validRoomId = computed(() => /^[0-9]{1,32}$/.test(roomId.value))
 // 组件使用的结果仅由服务端结算字段派生，不在前端计算分数。
 const result = computed(() => {
   const current = view.value
@@ -50,6 +52,8 @@ function updateClock() {
   remainingMs.value = deadline === null ? null : Math.max(0, deadline - performance.now())
 }
 function connect() { client.connect(address.value, nickname.value) }
+function joinRoom() { client.join(roomId.value) }
+function createRoom() { client.create(roomId.value) }
 function discard() {
   if (selected.value === null) return
   client.act({ type: 'discard', tile: view.value.ownTiles.hand[selected.value] })
@@ -70,16 +74,36 @@ onUnmounted(() => { clearInterval(timer); client.disconnect() })
       <p>{{ statusNames[state.status] }}<span v-if="state.nickname"> · {{ state.nickname }}</span></p>
     </header>
     <section aria-labelledby="entry-title">
-      <h2 id="entry-title">进入房间</h2>
+      <h2 id="entry-title">连接与大厅</h2>
       <form @submit.prevent="connect">
         <label>服务地址 <input v-model="address" required :disabled="connected" spellcheck="false" /></label>
         <label>昵称 <input v-model="nickname" required maxlength="48" :disabled="connected" /></label>
-        <span>房间：room-001</span>
-        <button type="submit" :disabled="connected || !nickname.trim()">{{ state.status === 'disconnected' ? '重新连接' : '连接并进入' }}</button>
+        <button type="submit" :disabled="connected || !nickname.trim()">{{ state.status === 'disconnected' ? '重新连接' : '连接' }}</button>
         <button v-if="connected" type="button" @click="client.disconnect()">断开连接</button>
-        <button v-if="state.status === 'lobby'" type="button" :disabled="state.pending" @click="client.join()">加入房间</button>
         <button v-if="state.status === 'away'" type="button" :disabled="state.pending" @click="client.join()">返回原座位</button>
       </form>
+      <div v-if="state.status === 'lobby'" class="lobby-controls">
+        <label>房间号
+          <input v-model.trim="roomId" list="room-options" maxlength="32" inputmode="numeric"
+            pattern="[0-9]{1,32}" spellcheck="false" />
+          <datalist id="room-options">
+            <option v-for="room in state.rooms" :key="room.roomId" :value="room.roomId">
+              {{ room.players }}/{{ room.capacity }} 人{{ room.playing ? ' · 对局中' : '' }}
+            </option>
+          </datalist>
+        </label>
+        <button type="button" :disabled="state.pending || !validRoomId" @click="joinRoom">加入房间</button>
+        <button type="button" :disabled="state.pending || !validRoomId" @click="createRoom">创建并加入</button>
+        <button type="button" :disabled="state.pending" @click="client.refreshRooms()">刷新列表</button>
+        <ul v-if="state.rooms.length" aria-label="可用房间">
+          <li v-for="room in state.rooms" :key="room.roomId">
+            <button type="button" :disabled="state.pending || room.players >= room.capacity"
+              @click="roomId = room.roomId; joinRoom()">
+              {{ room.roomId }} · {{ room.players }}/{{ room.capacity }} 人 · {{ room.playing ? '对局中' : '等待中' }}
+            </button>
+          </li>
+        </ul>
+      </div>
       <p>此标签页会保存临时身份，刷新或重新连接可恢复原座位。服务重启后需重新进入。</p>
     </section>
     <p role="status" aria-live="polite">{{ state.notice }}</p>

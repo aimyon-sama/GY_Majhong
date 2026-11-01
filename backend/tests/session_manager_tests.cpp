@@ -53,7 +53,7 @@ void test_connection_ownership() {
         "unknown token must not create an identity");
     require(!manager.current(unknown), "failed hello must leave connection unauthenticated");
     require(manager.current(second) == b.session, "other session stays isolated");
-    a.session->room_id = "room-001";
+    a.session->room_id = "100001";
     a.session->player = gymj::common::PlayerInfo{"same name", 123};
     manager.expire(a.session);
     require(!a.session->room_id && !a.session->player && a.session->connection.expired(),

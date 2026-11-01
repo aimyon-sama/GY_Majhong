@@ -5,7 +5,7 @@ import path from 'node:path'
 import { startServer } from './lib/test-server.mjs'
 
 const server = await startServer(process.argv[2], ['--action-timeout-ms', '100', '--seed', '42'])
-const roomId = 'room-001'
+const roomId = '100001'
 const players = []
 const tokens = []
 const sync = () => Promise.all(players.map(p => p.barrier()))
@@ -32,7 +32,7 @@ try {
   await guest.next(m => m.type === 'welcome')
   assert.equal((await guest.request({ type: 'join_room', roomId })).error, 'room_full')
   const leaving = players[0]
-  assert.equal((await leaving.request({ type: 'leave_room', roomId: 'other' })).code, 'room_not_found')
+  assert.equal((await leaving.request({ type: 'leave_room', roomId: '999999' })).code, 'room_not_found')
   for (const forged of [{ seat: 1 }, { playerId: '1' }]) {
     leaving.send({ type: 'leave_room', roomId, requestTag: 'forged', ...forged })
     assert.equal((await leaving.next(m => m.type === 'error')).code, 'invalid_field')

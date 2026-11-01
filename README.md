@@ -13,6 +13,20 @@ An online Mahjong game using a client/server architecture. The first target is a
 - Export replay logs and final score summaries after each game.
 - Build the frontend as a browser client over WebSocket.
 
+## Current Status
+
+The project now has an end-to-end playable multiplayer path:
+
+- One process manages up to 50 isolated four-player rooms, or about 200 seated players.
+- The lobby lists, creates, and joins rooms. Room IDs are 1–32 ASCII digits; the default is `100001`.
+- The server owns shuffling, legal actions, competing-claim resolution, scoring, timeouts, and all state transitions.
+- Temporary identities support reconnect, connection takeover, handing a seat to AI, and returning to that seat.
+- Every room advances independently and writes a separate JSONL replay. A room is reclaimed after its last human leaves.
+- The Vue 3 frontend renders the lobby, table, prompts, countdowns, and settlement results.
+- C++ unit tests, real WebSocket integration tests, and frontend state-machine tests are included.
+
+Persistent accounts, a database, spectating, chat, browser replay viewing, and production deployment configuration are not implemented yet.
+
 ## Architecture
 
 ```text
@@ -41,27 +55,24 @@ backend/
   include/                Public C++ headers shared across backend modules.
   src/
     core/
-      tile/               Tile model, tile parsing, wall generation, tile utilities.
-      state/              GameState, TableState, PlayerState, turn state.
-      rules/              Custom rules, legal action discovery, win checks.
-      score/              Score calculation and settlement.
+      point/              Custom point calculation and settlement.
+      room/               Wall, round, and table state machines.
+      rules/              Legal actions, win checks, and claim resolution.
     server/
-      gateway/            WebSocket acceptor, message routing, heartbeat.
-      lobby/              Room creation, join, ready, matchmaking if needed.
+      gateway/            WebSocket access, protocol codecs, routing, and timers.
+      lobby/              Multi-room creation, listing, joining, and lifecycle.
       session/            Temporary player identity, reconnect, connection binding.
-      table/              Table actors/state machines and timeout handling.
     storage/
-      replay/             Replay writer, score export, crash-safe file flushing.
+      replay/             Append-only JSONL replay writer.
   tests/                  Backend unit and integration tests.
 
 frontend/
-  public/                 Static files served by the frontend dev/build tool.
+  public/                 Standalone network debug page.
   src/
-    assets/               Tile images, sounds, fonts, and visual resources.
     components/           Reusable UI controls and table widgets.
     net/                  WebSocket client, protocol encoding/decoding.
-    state/                Client-side view model derived from server snapshots.
-    views/                Lobby, table, replay, and result screens.
+    App.vue               Lobby and table UI.
+  tests/                  Frontend network state-machine tests.
 
 protocol/                 Versioned client/server message schemas.
 replay/                   Exported replay files during local development.
@@ -120,48 +131,32 @@ Key responsibilities:
 
 Use JSON WebSocket messages first. This keeps debugging simple while the game rules are still changing. Binary protocol can wait until there is a measured reason.
 
-Client command example:
+Create and join a numeric room:
 
 ```json
 {
-  "type": "discard",
-  "roomId": "room-001",
-  "tableId": "table-001",
-  "seq": 42,
-  "tile": "5m"
+  "v": 1,
+  "type": "create_room",
+  "requestTag": "create-1",
+  "roomId": "200001"
 }
 ```
 
-Server event example:
+Submit an action advertised by the authoritative snapshot:
 
 ```json
 {
-  "type": "event",
-  "tableId": "table-001",
-  "seq": 43,
-  "event": {
-    "kind": "player_discarded",
-    "seat": 2,
-    "tile": "5m"
-  }
+  "v": 1,
+  "type": "action",
+  "roomId": "200001",
+  "roundId": "1",
+  "requestId": "7",
+  "promptId": "18",
+  "action": {"type": "discard", "tile": "5m"}
 }
 ```
 
-Server prompt example:
-
-```json
-{
-  "type": "prompt",
-  "tableId": "table-001",
-  "seq": 44,
-  "actions": [
-    { "type": "pon", "tiles": ["5m", "5m"] },
-    { "type": "win" },
-    { "type": "pass" }
-  ],
-  "timeoutMs": 8000
-}
-```
+See [protocol v1](protocol/v1.md) for complete message shapes, ordering rules, and error codes.
 
 ## Replay Format
 
@@ -171,51 +166,79 @@ and cumulative scores. The default output directory is `replay/`, configurable
 through `TableOptions::replay_directory`. See [Replay Format v1](docs/replay.md)
 for the file schema, error handling, and JSON dependency setup.
 
-## Initial Milestones
+## Quick Start
 
-1. Implement core rule modules for action legality, win checks, claim priority, and scoring. Done for the current custom-rule surface.
-2. Keep expanding deterministic tests whenever rule details change.
-3. Implement a pure C++ round/table state machine that applies validated actions and emits replay events.
-4. Add the WebSocket server and room/table/session lifecycle.
-5. Build the minimal browser client for lobby, table, prompts, and results.
-6. Export replay JSON and score files at game end.
-7. Add reconnect, timeout auto-play, and replay viewer.
+Requirements:
 
-## Frontend Prototype
+- CMake 3.24+
+- Visual Studio 2022 with the C++ x64 toolchain
+- Node.js 22.12+
 
-The Vue table in `frontend/` connects to protocol v1 for session recovery, joining, readiness,
-actions, and authoritative snapshots. Start the backend, then run `npm install` and `npm run dev`
-in `frontend/`. See the [frontend guide](frontend/README.md) for four-player testing.
-
-## Backend Tests
-
-The single-room server now connects protocol v1 to temporary sessions, joining, readiness,
-actions, and private snapshots. See the [single-room server guide (Chinese)](docs/server-v1.md)
-for design explanations, MSVC build commands, and network tests. The server now schedules
-automatic discards and passes for idle players. Away or disconnected seats remain assigned to their original players, with AI control and automatic readiness across rounds; replacements cannot take those seats. Once the last human leaves or disconnects, the table closes and its old session tokens can no longer restore it.
-The Vue table now renders this server-driven state flow.
-
-On Windows, use the checked-in preset to pin the generator to Visual Studio
-2022 x64 instead of whichever compiler happens to be first on `PATH`. It
-requires CMake 3.24+ and a Visual Studio 2022 installation with C++ support.
-From the repository root:
+Build the backend from the repository root:
 
 ```powershell
 Push-Location backend
 cmake --preset windows-msvc-debug
 cmake --build --preset windows-msvc-debug
+Pop-Location
+```
+
+Start the server. The example uses port `8080`; replays are written under `replay/` in the process working directory:
+
+```powershell
+./backend/out/build/windows-msvc-debug/app/Debug/gymj_server.exe 8080 --action-timeout-ms 15000
+```
+
+Start the frontend in another terminal:
+
+```powershell
+Push-Location frontend
+npm install
+npm run dev
+Pop-Location
+```
+
+Open the URL printed by Vite and connect to `ws://127.0.0.1:8080`. Join the default room `100001`, or enter a new numeric ID and select “Create and join.” A game starts after four independent browser tabs enter the same room and all four players ready up. Do not duplicate an already seated tab because that may copy its temporary identity from `sessionStorage`.
+
+See the [frontend guide](frontend/README.md) for client states and four-player testing, and the [server guide](docs/server-v1.md) for backend design details.
+
+## Testing
+
+Run the complete backend suite:
+
+```powershell
+Push-Location backend
 ctest --preset windows-msvc-debug
 Pop-Location
 ```
 
-The build tree is `backend/out/build/windows-msvc-debug/`. On other platforms, configure
-`backend/` explicitly with a modern C++20 compiler; GCC 8 is not supported.
+Run frontend tests and a production build:
 
-Current test executables:
+```powershell
+Push-Location frontend
+npm test
+npm run build
+Pop-Location
+```
 
-- `gymj_game_engine_tests`: low-level tile-shape and win/tenpai checks.
-- `gymj_rule_engine_tests`: `RoundState` to legal action generation, draw-buffer handling, claim resolution, and point calculation handoff.
-- `gymj_point_engine_tests`: custom point settlement details.
+Backend coverage includes rules, scoring, wall, round, table, protocol, and sessions. CTest also launches a real server to test transport, full games, timeout AI, room closure, and two-room isolation. Frontend tests cover identity recovery, request synchronization, duplicate-click protection, the room lobby, and error recovery.
+
+On other platforms, configure `backend/` explicitly with a modern C++20 compiler. GCC 8 is not supported.
+
+## Room and Identity Rules
+
+- Room IDs contain 1–32 ASCII digits. Leading zeroes are preserved, so `1` and `01` are different rooms.
+- The default room is `100001`. A legacy join recreates a fresh table at that ID after the previous one closes.
+- One temporary identity can bind to only one room. While another human remains, disconnecting or leaving hands the seat to AI and does not make it available to replacements.
+- A player can restore the seat with the temporary token while the room exists. Once the last human leaves, the room closes and all of its old tokens expire.
+- Identities live only in server memory and disappear on restart. The browser stores tokens in `sessionStorage`, scoped by server address.
+
+## Roadmap
+
+- Browser replay listing and playback.
+- Production deployment, TLS termination, monitoring, and rate limiting.
+- More complete desktop visuals, sound, and mobile layouts.
+- Load testing and performance tuning against the 50-table target.
 
 ## Development Notes
 

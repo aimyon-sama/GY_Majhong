@@ -1,11 +1,27 @@
 #include <gymj/server/lobby/room_manager.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <utility>
 
 namespace gymj::server {
-Room::Room(common::RuleConfig rules, common::TableOptions options)
-    : table_(rules, std::move(options)) {}
+Room::Room(std::string id, common::RuleConfig rules, common::TableOptions options)
+    : id_(std::move(id)), table_(rules, std::move(options)) {}
+
+RoomSummary Room::summary() const {
+    RoomSummary result;
+    result.id = id_;
+    result.players = members_.size();
+    if (members_.empty()) return result;
+    const auto view = table_.snapshot(*members_.begin()->second->player);
+    if (!view) return result;
+    result.playing = view->table_stage == common::TableStage::Playing;
+    result.connected = static_cast<std::size_t>(std::count_if(
+        view->seats.begin(), view->seats.end(), [](const auto& seat) {
+            return seat.occupied && seat.connected;
+        }));
+    return result;
+}
 
 common::TableUpdate Room::join(const SessionManager::Session& session) {
     // 进行中的 Table 优先报告 round in progress；房间层仍应明确报告满员。
@@ -17,7 +33,7 @@ common::TableUpdate Room::join(const SessionManager::Session& session) {
     auto update = table_.join(session->player.value_or(common::PlayerInfo{session->nickname, 0}));
     if (update.accepted && update.assigned_player) {
         session->player = update.assigned_player;
-        session->room_id = std::string(id);
+        session->room_id = id_;
         // 必须先完成绑定，Router 随后才能把首次私有快照发给刚入座的人。
         members_[session->player->id] = session;
     }
@@ -81,19 +97,62 @@ std::vector<gateway::WsSession::Ptr> Room::online_connections() const {
 }
 
 RoomManager::RoomManager(common::RuleConfig rules, common::TableOptions options)
-    : rules_(rules), options_(std::move(options)),
-      fixed_room_(std::make_unique<Room>(rules_, options_)) {}
+    : rules_(rules), options_(std::move(options)) {
+    create(std::string(default_room_id));
+}
 
 Room* RoomManager::find(std::string_view id) {
-    return id == Room::id ? fixed_room_.get() : nullptr;
+    const auto found = rooms_.find(std::string(id));
+    return found == rooms_.end() ? nullptr : found->second.get();
 }
-Room* RoomManager::get_or_create(std::string_view id) {
-    if (id != Room::id) return nullptr;
-    if (!fixed_room_) fixed_room_ = std::make_unique<Room>(rules_, options_);
-    return fixed_room_.get();
+
+Room* RoomManager::create(std::string id) {
+    if (!valid_id(id) || rooms_.size() >= max_rooms || rooms_.contains(id)) return nullptr;
+    auto room = std::make_unique<Room>(id, rules_, options_for(id));
+    auto* result = room.get();
+    rooms_.emplace(std::move(id), std::move(room));
+    return result;
 }
 
 void RoomManager::close(std::string_view id) {
-    if (id == Room::id) fixed_room_.reset();
+    rooms_.erase(std::string(id));
+}
+
+std::vector<Room*> RoomManager::active_rooms() {
+    std::vector<Room*> result;
+    result.reserve(rooms_.size());
+    for (auto& [id, room] : rooms_) result.push_back(room.get());
+    return result;
+}
+
+std::vector<RoomSummary> RoomManager::summaries() const {
+    std::vector<RoomSummary> result;
+    result.reserve(rooms_.size());
+    for (const auto& [id, room] : rooms_) result.push_back(room->summary());
+    std::sort(result.begin(), result.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.id < rhs.id;
+    });
+    return result;
+}
+
+bool RoomManager::valid_id(std::string_view id) noexcept {
+    if (id.empty() || id.size() > 32) return false;
+    return std::all_of(id.begin(), id.end(), [](char ch) {
+        return ch >= '0' && ch <= '9';
+    });
+}
+
+common::TableOptions RoomManager::options_for(std::string_view id) const {
+    auto result = options_;
+    if (result.seed && id != default_room_id) {
+        // 固定种子模式下仍让不同房间拥有不同且可复现的洗牌序列。
+        std::uint64_t hash = 1469598103934665603ULL;
+        for (const unsigned char ch : id) {
+            hash ^= ch;
+            hash *= 1099511628211ULL;
+        }
+        result.seed = *result.seed ^ hash;
+    }
+    return result;
 }
 } // namespace gymj::server

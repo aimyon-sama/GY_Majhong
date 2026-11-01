@@ -25,6 +25,8 @@ private:
     void close_abandoned_room(Room& room);
     using Session = SessionManager::Session;
     void hello(const WsSession::Ptr& connection, const protocol::HelloRequest& request);
+    void handle(const WsSession::Ptr&, const Session&, const protocol::ListRoomsRequest&);
+    void handle(const WsSession::Ptr&, const Session&, const protocol::CreateRoomRequest&);
     void handle(const WsSession::Ptr&, const Session&, const protocol::JoinRoomRequest&);
     void handle(const WsSession::Ptr&, const Session&, const protocol::LeaveRoomRequest&);
     void handle(const WsSession::Ptr&, const Session&, const protocol::ReadyRequest&);
@@ -34,6 +36,7 @@ private:
                       std::optional<std::string> tag, std::optional<std::uint64_t> request_id = {});
     void deliver(Room& room, const common::TableUpdate& update);
     void notice(Room& room, const protocol::ServerNotice& value);
+    void send_room_list(const WsSession::Ptr&, std::string_view request_tag);
 
     SessionManager sessions_;
     RoomManager rooms_;

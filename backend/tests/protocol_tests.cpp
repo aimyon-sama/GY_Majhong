@@ -53,19 +53,27 @@ void test_hello_and_room_requests() {
         == protocol::ErrorCode::UnsupportedVersion, "legacy version field should fail");
 
     auto join = protocol::decode_client_message(
-        R"({"v":1,"type":"join_room","requestTag":"join-1","roomId":"room-001"})");
+        R"({"v":1,"type":"join_room","requestTag":"join-1","roomId":"100001"})");
     require(join && std::holds_alternative<protocol::JoinRoomRequest>(*join.request),
         "join_room should decode");
+    auto list = protocol::decode_client_message(
+        R"({"v":1,"type":"list_rooms","requestTag":"list-1"})");
+    require(list && std::holds_alternative<protocol::ListRoomsRequest>(*list.request),
+        "list_rooms should decode");
+    auto create = protocol::decode_client_message(
+        R"({"v":1,"type":"create_room","requestTag":"create-1","roomId":"200001"})");
+    require(create && std::holds_alternative<protocol::CreateRoomRequest>(*create.request),
+        "create_room should decode");
     auto leave = protocol::decode_client_message(
-        R"({"v":1,"type":"leave_room","requestTag":"leave-1","roomId":"room-001"})");
+        R"({"v":1,"type":"leave_room","requestTag":"leave-1","roomId":"100001"})");
     require(leave && std::holds_alternative<protocol::LeaveRoomRequest>(*leave.request),
         "leave_room should decode");
     require(std::get<protocol::LeaveRoomRequest>(*leave.request).request_tag == "leave-1",
         "leave request correlation retained");
     for (const auto* invalid : {
-        R"({"v":1,"type":"leave_room","roomId":"room-001"})",
-        R"({"v":1,"type":"leave_room","requestTag":"x","roomId":"room-001","seat":1})",
-        R"({"v":1,"type":"leave_room","requestTag":"x","roomId":"room-001","playerId":"7"})"}) {
+        R"({"v":1,"type":"leave_room","roomId":"100001"})",
+        R"({"v":1,"type":"leave_room","requestTag":"x","roomId":"100001","seat":1})",
+        R"({"v":1,"type":"leave_room","requestTag":"x","roomId":"100001","playerId":"7"})"}) {
         require(error_code(protocol::decode_client_message(invalid)) == protocol::ErrorCode::InvalidField,
             "leave must reject missing tags and forged identities");
     }
@@ -77,10 +85,10 @@ void test_hello_and_room_requests() {
 
 void test_action_decoder() {
     auto decoded = protocol::decode_client_message(
-        R"({"v":1,"type":"action","roomId":"room-001","roundId":"2","requestId":"7","promptId":"11","action":{"type":"discard","tile":"5m"}})");
+        R"({"v":1,"type":"action","roomId":"100001","roundId":"2","requestId":"7","promptId":"11","action":{"type":"discard","tile":"5m"}})");
     require(static_cast<bool>(decoded), "valid action should decode");
     const auto& request = std::get<protocol::ActionRequest>(*decoded.request);
-    require(request.room_id == "room-001", "action room mismatch");
+    require(request.room_id == "100001", "action room mismatch");
     require(request.command.round_id == 2 && request.command.request_id == 7
         && request.command.prompt_id == 11, "action identifiers mismatch");
     require(request.command.action.type == common::PlayerActionType::Discard,
@@ -89,13 +97,13 @@ void test_action_decoder() {
         "action tile mismatch");
 
     require(error_code(protocol::decode_client_message(
-        R"({"v":1,"type":"action","roomId":"room-001","roundId":"2","requestId":"7","promptId":"11","action":{"type":"discard","tile":"0m"}})"))
+        R"({"v":1,"type":"action","roomId":"100001","roundId":"2","requestId":"7","promptId":"11","action":{"type":"discard","tile":"0m"}})"))
         == protocol::ErrorCode::InvalidTile, "invalid tile should fail");
     require(error_code(protocol::decode_client_message(
-        R"({"v":1,"type":"action","roomId":"room-001","roundId":"2","requestId":"7","promptId":"11","action":{"type":"pass","tile":"5m"}})"))
+        R"({"v":1,"type":"action","roomId":"100001","roundId":"2","requestId":"7","promptId":"11","action":{"type":"pass","tile":"5m"}})"))
         == protocol::ErrorCode::InvalidAction, "pass with tile should fail");
     require(error_code(protocol::decode_client_message(
-        R"({"v":1,"type":"action","roomId":"room-001","command":{}})"))
+        R"({"v":1,"type":"action","roomId":"100001","command":{}})"))
         == protocol::ErrorCode::InvalidField, "legacy nested command should fail");
 }
 
@@ -120,6 +128,15 @@ void test_server_encoders() {
 
     const auto notice = protocol::encode_notice({"replay_write_failed", "failed"});
     require(notice.at("type") == "server_notice", "notice type mismatch");
+
+    const auto rooms = protocol::encode_room_list("list-1", {
+        {"200001", 2, 1, false}, {"100001", 4, 4, true}});
+    require(rooms.at("type") == "room_list" && rooms.at("requestTag") == "list-1",
+        "room list envelope mismatch");
+    require(rooms.at("rooms").at(0).at("roomId") == "200001"
+        && rooms.at("rooms").at(0).at("capacity") == 4
+        && rooms.at("rooms").at(1).at("playing") == true,
+        "room list fields mismatch");
 }
 
 void test_table_update_encoder() {
@@ -175,10 +192,10 @@ void test_table_update_encoder() {
     claim_event.player_seat = 1;
     delivery.events.push_back(claim_event);
 
-    const auto encoded = protocol::encode_table_update("room-001", delivery, now);
+    const auto encoded = protocol::encode_table_update("100001", delivery, now);
     require(encoded.at("v") == 1 && encoded.at("type") == "table_update",
         "table update envelope mismatch");
-    require(encoded.at("roomId") == "room-001" && !encoded.contains("recipient_id")
+    require(encoded.at("roomId") == "100001" && !encoded.contains("recipient_id")
         && !encoded.contains("payload"), "table update leaked internal shape");
 
     const auto& encoded_view = encoded.at("view");

@@ -13,6 +13,20 @@
 - 每局结束后导出牌谱和最终小分。
 - 前端使用浏览器客户端，通过 WebSocket 与服务端通信。
 
+## 当前状态
+
+当前版本已经形成可联机游玩的端到端闭环：
+
+- 单进程最多维护 50 个相互隔离的四人房间，对应约 200 个同时入座玩家。
+- 大厅支持列出、创建和加入房间；房间号是 1–32 位纯数字字符串，默认房间为 `100001`。
+- 服务端负责洗牌、合法操作、多人响应裁决、计分、超时和全部状态转移。
+- 支持临时身份、断线重连、连接接管、主动交给 AI 及返回原座位。
+- 每个房间独立推进、独立生成 JSONL 牌谱；最后一名真人离开后关闭并回收房间。
+- Vue 3 前端提供大厅、牌桌、操作提示、倒计时与结算展示。
+- C++ 单元测试、真实 WebSocket 集成测试和前端状态机测试均已接入。
+
+当前尚未实现长期账号、数据库、观战、聊天、在线牌谱浏览和生产部署配置。
+
 ## 架构
 
 ```text
@@ -41,27 +55,24 @@ backend/
   include/                后端模块间共享的公共 C++ 头文件。
   src/
     core/
-      tile/               牌模型、牌解析、牌山生成、牌工具函数。
-      state/              GameState、TableState、PlayerState、回合状态。
-      rules/              自定义规则、合法操作发现、胡牌检查。
-      score/              小分计算和结算。
+      point/              自定义小分计算和结算。
+      room/               牌山、单局与牌桌状态机。
+      rules/              合法操作、胡牌和响应裁决。
     server/
-      gateway/            WebSocket 接入、消息路由、心跳。
-      lobby/              房间创建、加入、准备，后续可扩展匹配。
+      gateway/            WebSocket 接入、协议编解码、消息路由和定时器。
+      lobby/              多房间创建、加入、列表和生命周期。
       session/            临时玩家身份、断线重连、连接绑定。
-      table/              牌桌状态机和超时处理。
     storage/
-      replay/             牌谱写入、小分导出、崩溃安全的文件刷新。
+      replay/             追加式 JSONL 牌谱写入。
   tests/                  后端单元测试和集成测试。
 
 frontend/
-  public/                 前端开发/构建工具直接服务的静态文件。
+  public/                 独立网络调试页。
   src/
-    assets/               牌图、音效、字体和视觉资源。
     components/           可复用 UI 控件和牌桌组件。
     net/                  WebSocket 客户端、协议编解码。
-    state/                由服务端快照派生出的客户端视图状态。
-    views/                大厅、牌桌、牌谱回放、结果页。
+    App.vue               大厅和牌桌主界面。
+  tests/                  前端网络状态机测试。
 
 protocol/                 版本化的客户端/服务端消息结构。
 replay/                   本地开发期间导出的牌谱文件。
@@ -120,48 +131,32 @@ scripts/                  构建、测试、导出和维护脚本。
 
 第一版使用 JSON WebSocket 消息。这样在规则仍然变化时更容易调试。二进制协议可以等到有明确性能证据时再考虑。
 
-客户端命令示例：
+创建并加入数字房间：
 
 ```json
 {
-  "type": "discard",
-  "roomId": "room-001",
-  "tableId": "table-001",
-  "seq": 42,
-  "tile": "5m"
+  "v": 1,
+  "type": "create_room",
+  "requestTag": "create-1",
+  "roomId": "200001"
 }
 ```
 
-服务端事件示例：
+提交服务端允许的动作：
 
 ```json
 {
-  "type": "event",
-  "tableId": "table-001",
-  "seq": 43,
-  "event": {
-    "kind": "player_discarded",
-    "seat": 2,
-    "tile": "5m"
-  }
+  "v": 1,
+  "type": "action",
+  "roomId": "200001",
+  "roundId": "1",
+  "requestId": "7",
+  "promptId": "18",
+  "action": {"type": "discard", "tile": "5m"}
 }
 ```
 
-服务端操作提示示例：
-
-```json
-{
-  "type": "prompt",
-  "tableId": "table-001",
-  "seq": 44,
-  "actions": [
-    { "type": "pon", "tiles": ["5m", "5m"] },
-    { "type": "win" },
-    { "type": "pass" }
-  ],
-  "timeoutMs": 8000
-}
-```
+完整消息结构、顺序与错误码见[协议 v1](protocol/v1.md)。
 
 ## 牌谱格式
 
@@ -170,48 +165,79 @@ scripts/                  构建、测试、导出和维护脚本。
 可通过 `TableOptions::replay_directory` 配置。格式、错误处理和 JSON 依赖配置见
 [Replay Format v1](docs/replay.md)。
 
-## 初始里程碑
+## 快速开始
 
-1. 实现合法操作、胡牌检查、响应优先级和计分等规则核心。当前自定义规则表面已完成。
-2. 当规则细节变化时，持续扩展确定性测试。
-3. 实现纯 C++ 的局/桌状态机，用于应用已验证操作并生成牌谱事件。
-4. 添加 WebSocket 服务端以及房间、牌桌、会话生命周期。
-5. 构建最小浏览器客户端，支持大厅、牌桌、操作提示和结果页。
-6. 在牌局结束时导出牌谱 JSON 和小分文件。
-7. 添加断线重连、超时托管和牌谱回放器。
+环境要求：
 
-## 前端原型
+- CMake 3.24+
+- Visual Studio 2022，并安装 C++ x64 工具链
+- Node.js 22.12+
 
-前端 Vue 牌桌已连接协议 v1，支持临时身份恢复、入座准备、真实动作和服务端快照渲染。
-先启动后端，再在 `frontend/` 下运行 `npm install` 和 `npm run dev`，可使用四个独立标签页联调。
-详见[前端说明](frontend/README.md)。
-
-## 后端测试
-
-单房间业务网络层已接入协议 v1，支持临时身份、入座、准备开局、动作和私有快照。
-实现原因、中文代码导读、MSVC 构建与网络联调步骤见[单房间服务端说明](docs/server-v1.md)。
-服务器已接入超时调度，玩家不操作时自动出牌、过牌；离开或断线后由 AI 持续代管并自动准备下一局，保留原座位和累计分，不允许补位。最后一名真人离开或断线后立即关局，旧令牌失效，不能重连恢复。Vue 牌桌支持交给 AI 与返回尚未关闭的原座位。
-
-Windows 下使用仓库内置 preset，将生成器固定为 Visual Studio 2022 x64，避免误用
-`PATH` 中靠前的旧编译器。需要 CMake 3.24+，并安装带 C++ 工具链的 Visual Studio
-2022。在仓库根目录运行：
+在仓库根目录构建后端：
 
 ```powershell
 Push-Location backend
 cmake --preset windows-msvc-debug
 cmake --build --preset windows-msvc-debug
+Pop-Location
+```
+
+启动服务端；端口默认示例为 `8080`，牌谱写入当前工作目录的 `replay/`：
+
+```powershell
+./backend/out/build/windows-msvc-debug/app/Debug/gymj_server.exe 8080 --action-timeout-ms 15000
+```
+
+另开终端启动前端：
+
+```powershell
+Push-Location frontend
+npm install
+npm run dev
+Pop-Location
+```
+
+打开 Vite 输出的地址，连接 `ws://127.0.0.1:8080`。进入大厅后可直接加入默认房间 `100001`，或输入新的纯数字房间号并点击“创建并加入”。四个独立浏览器标签页进入同一房间并全部准备后开局。不要复制已经入座的标签页，以免复制 `sessionStorage` 中的临时身份。
+
+详细的前端状态与四人联调方法见[前端说明](frontend/README.md)，服务端设计见[服务端说明](docs/server-v1.md)。
+
+## 测试
+
+后端全量测试：
+
+```powershell
+Push-Location backend
 ctest --preset windows-msvc-debug
 Pop-Location
 ```
 
-构建目录为 `backend/out/build/windows-msvc-debug/`。其他平台应显式使用支持 C++20 的较新编译器
-配置 `backend/`；本项目不支持 GCC 8。
+前端测试与生产构建：
 
-当前测试可执行文件：
+```powershell
+Push-Location frontend
+npm test
+npm run build
+Pop-Location
+```
 
-- `gymj_game_engine_tests`：底层牌型、胡牌和听牌检查。
-- `gymj_rule_engine_tests`：从 `RoundState` 生成合法操作、摸牌缓冲处理、响应裁决和计分转交。
-- `gymj_point_engine_tests`：自定义小分结算细节。
+后端测试覆盖规则、计分、牌山、单局、牌桌、协议和会话；CTest 还会启动真实服务端验证传输、完整对局、超时托管、离桌关局及双房间隔离。前端测试覆盖身份恢复、请求同步、重复点击保护、房间大厅和错误恢复。
+
+其他平台应使用支持 C++20 的现代编译器显式配置 `backend/`；本项目不支持 GCC 8。
+
+## 房间与身份规则
+
+- 房间号是 1–32 位 ASCII 数字字符串；前导零保留，因此 `1` 与 `01` 是不同房间。
+- 默认房间为 `100001`；关闭后旧客户端再次加入该号码时会创建一张新桌。
+- 一个临时身份只能绑定一个房间。房间仍有真人时，断线或主动离开会交给 AI，原座位不能补位。
+- 原房间仍存在时，可以使用临时令牌恢复；最后一名真人离开后房间关闭，全部旧令牌失效。
+- 身份仅保存在服务端内存中，服务重启后失效；浏览器令牌按服务地址保存在 `sessionStorage`。
+
+## 后续工作
+
+- 浏览器牌谱列表与回放器。
+- 生产部署、TLS 终止、监控与限流。
+- 更完整的桌面视觉、音效和移动端布局。
+- 在实际负载数据基础上进行 50 桌容量测试与性能调优。
 
 ## 开发说明
 

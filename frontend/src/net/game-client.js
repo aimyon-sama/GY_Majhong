@@ -1,8 +1,14 @@
-const ROOM = 'room-001'
+const DEFAULT_ROOM = '100001'
+const ROOM_ID_PATTERN = /^[0-9]{1,32}$/
 const SESSION_PREFIX = 'gymj.game.session:'
 const ADDRESS_KEY = 'gymj.game.address'
 const errors = {
   room_full: '房间已满，请稍后重试。',
+  room_not_found: '房间不存在，请刷新房间列表。',
+  invalid_room_id: '房间号必须是 1 至 32 位数字。',
+  room_exists: '该房间已经存在，请直接加入。',
+  room_limit_reached: '服务器房间数已达上限，请加入现有房间。',
+  already_in_room: '当前身份已经绑定到一个房间。',
   session_expired: '原身份已失效，请重新进入房间。',
   invalid_session: '保存的身份无效，请重新进入房间。',
   invalid_nickname: '昵称需要 1 至 24 个字符，且不能包含控制字符。',
@@ -36,7 +42,7 @@ export class GameClient {
     this.timer = null
     this.serial = 0
     this.tokens = new Map()
-    this.state = { status: 'idle', view: null, roomId: ROOM, nickname: '',
+    this.state = { status: 'idle', view: null, roomId: null, rooms: [], nickname: '',
       pending: false, notice: '填写昵称，连接后进入房间。' }
   }
 
@@ -120,19 +126,29 @@ export class GameClient {
     catch { this.disconnect('发送失败，请重新连接以同步牌桌。'); return false }
   }
 
-  lobby(type) {
+  lobby(type, roomId = this.state.roomId) {
+    if (!roomId) return false
     const requestTag = String(++this.serial)
-    this.pending = { type, requestTag }
+    this.pending = { type, requestTag, roomId }
     this.publish({ pending: true })
     this.armTimeout()
-    this.send({ type, roomId: ROOM, requestTag })
+    return this.send({ type, roomId, requestTag })
+  }
+
+  refreshRooms() {
+    if (this.state.status !== 'lobby' || this.state.pending) return false
+    const requestTag = String(++this.serial)
+    this.pending = { type: 'list_rooms', requestTag }
+    this.publish({ pending: true })
+    this.armTimeout()
+    return this.send({ type: 'list_rooms', requestTag })
   }
 
   sync() {
     this.snapshotTag = String(++this.serial)
     this.publish({ status: 'syncing', pending: true })
     this.armTimeout()
-    this.send({ type: 'snapshot', roomId: ROOM, requestTag: this.snapshotTag })
+    this.send({ type: 'snapshot', roomId: this.state.roomId, requestTag: this.snapshotTag })
   }
 
   enterLobby(notice, roomId = null) {
@@ -145,10 +161,27 @@ export class GameClient {
     this.publish({ status: roomId ? 'away' : 'lobby', roomId, view: null, pending: false, notice })
   }
 
-  join() {
+  join(roomId = DEFAULT_ROOM) {
     if (!['lobby', 'away'].includes(this.state.status) || this.state.pending) return false
+    const target = this.state.status === 'away' ? this.state.roomId : roomId.trim()
+    if (!ROOM_ID_PATTERN.test(target)) {
+      this.publish({ notice: errors.invalid_room_id })
+      return false
+    }
     this.publish({ status: 'syncing', notice: '正在进入房间…' })
-    this.lobby('join_room')
+    this.lobby('join_room', target)
+    return true
+  }
+
+  create(roomId) {
+    if (this.state.status !== 'lobby' || this.state.pending) return false
+    const target = roomId.trim()
+    if (!ROOM_ID_PATTERN.test(target)) {
+      this.publish({ notice: errors.invalid_room_id })
+      return false
+    }
+    this.publish({ status: 'syncing', notice: '正在创建房间…' })
+    this.lobby('create_room', target)
     return true
   }
 
@@ -173,7 +206,7 @@ export class GameClient {
     if (status !== 'online' || pending || !view || view.tableStage !== 'playing') return false
     const legal = view.availableActions.find(item => item.type === action.type && item.tile === action.tile)
     if (!legal) return false
-    const command = { type: 'action', roomId: ROOM, roundId: view.roundId,
+    const command = { type: 'action', roomId: this.state.roomId, roundId: view.roundId,
       promptId: view.promptId, requestId: String(++this.requestId), action: { ...legal } }
     this.pending = command
     this.publish({ pending: true, notice: '操作已发送，等待服务器确认…' })
@@ -187,14 +220,23 @@ export class GameClient {
       this.saveToken(message.sessionToken)
       try { this.storage?.setItem(ADDRESS_KEY, this.address) } catch {}
       this.publish({ status: 'syncing', nickname: message.nickname,
-        notice: message.resumed ? '身份已恢复。' : '身份已创建，正在进入房间。' })
+        roomId: message.roomId,
+        notice: message.resumed ? '身份已恢复。' : '身份已创建，请选择房间。' })
       // 恢复已入座身份时，welcome 后由服务器主动发送私有快照。
       if (message.roomId) this.awaitingSnapshot = true
-      else if (message.resumed) this.enterLobby('身份已恢复，当前未入座，可点击“加入房间”。')
-      else this.lobby('join_room')
+      else {
+        this.enterLobby(message.resumed ? '身份已恢复，当前未入座，请选择房间。' : '身份已创建，请选择或创建房间。')
+        this.refreshRooms()
+      }
+    } else if (message.type === 'room_list') {
+      if (this.pending?.type !== 'list_rooms' || message.requestTag !== this.pending.requestTag) return
+      clearTimeout(this.timer)
+      this.pending = null
+      this.publish({ rooms: message.rooms, pending: false,
+        notice: message.rooms.length ? '房间列表已更新。' : '暂无房间，可以创建一个。' })
     } else if (message.type === 'table_update') {
       if (['lobby', 'away'].includes(this.state.status)) return
-      if (message.roomId !== ROOM) return
+      if (this.state.roomId && message.roomId !== this.state.roomId) return
       const view = message.view
       if (this.state.view && BigInt(view.tableSeq) < BigInt(this.state.view.tableSeq)) return
       if (this.requestRound !== view.roundId) {
@@ -209,7 +251,7 @@ export class GameClient {
         clearTimeout(this.timer)
       }
       // 完整替换快照；events 不再重复修改手牌、牌河或分数。
-      this.publish({ view, roomId: ROOM, ...(synchronized ? { status: 'online', pending: false } : {}) })
+      this.publish({ view, roomId: message.roomId, ...(synchronized ? { status: 'online', pending: false } : {}) })
     } else if (message.type === 'ack') {
       if (message.requestTag && message.requestTag === this.snapshotTag) {
         this.snapshotTag = null
@@ -222,7 +264,7 @@ export class GameClient {
       if (pending.type === 'action' ? message.requestId !== pending.requestId
         : message.requestTag !== pending.requestTag) return
       if (pending.type === 'leave_room') {
-        if (message.accepted) return this.enterLobby('仍有玩家在桌时，AI 代管并自动准备；全员离开后关局，不能返回。', ROOM)
+        if (message.accepted) return this.enterLobby('仍有玩家在桌时，AI 代管并自动准备；全员离开后关局，不能返回。', this.state.roomId)
         this.publish({ notice: '交给 AI 失败，正在同步牌桌。' })
         this.sync()
         return
@@ -230,8 +272,9 @@ export class GameClient {
       this.publish({ notice: message.accepted
         ? (pending.type === 'action' ? '操作已确认。' : pending.type === 'ready' ? '已准备，等待其他玩家。' : '已进入房间，请准备。')
         : (errors[message.error] || '请求未被接受，请稍后重试。') })
-      if (pending.type === 'join_room') {
+      if (['join_room', 'create_room'].includes(pending.type)) {
         if (!message.accepted) return this.enterLobby(this.state.notice)
+        this.publish({ roomId: pending.roomId })
         this.awaitingSnapshot = true
       } else {
         // 拒绝和重复请求可能没有广播，主动取快照后才解除按钮锁定。
@@ -243,6 +286,10 @@ export class GameClient {
         this.saveToken(null)
         this.publish({ view: null, roomId: null })
         this.disconnect(notice)
+      } else if (['join_room', 'create_room'].includes(this.pending?.type)
+          && message.requestTag === this.pending.requestTag) {
+        this.enterLobby(notice)
+        this.refreshRooms()
       } else if (this.pending?.type === 'action' && message.requestId === this.pending.requestId) {
         this.publish({ notice })
         this.sync()

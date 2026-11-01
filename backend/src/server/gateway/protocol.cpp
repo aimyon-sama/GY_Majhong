@@ -212,6 +212,7 @@ ParsedAction parse_action(const Json& object) {
 
 std::string_view operation_name(LobbyOperation operation) noexcept {
     switch (operation) {
+        case LobbyOperation::CreateRoom: return "create_room";
         case LobbyOperation::JoinRoom: return "join_room";
         case LobbyOperation::LeaveRoom: return "leave_room";
         case LobbyOperation::Ready: return "ready";
@@ -471,6 +472,9 @@ std::string_view to_string(ErrorCode code) noexcept {
         case ErrorCode::SessionExpired: return "session_expired";
         case ErrorCode::NotSeated: return "not_seated";
         case ErrorCode::RoomNotFound: return "room_not_found";
+        case ErrorCode::InvalidRoomId: return "invalid_room_id";
+        case ErrorCode::RoomExists: return "room_exists";
+        case ErrorCode::RoomLimitReached: return "room_limit_reached";
         case ErrorCode::RoomMismatch: return "room_mismatch";
         case ErrorCode::RoomFull: return "room_full";
         case ErrorCode::AlreadyInRoom: return "already_in_room";
@@ -550,6 +554,15 @@ DecodeResult decode_client_message(std::string_view text) {
         return succeed(std::move(request));
     }
 
+    if (*type == "list_rooms") {
+        if (!only_contains(root, {"v", "type", "requestTag"})) {
+            return fail(ErrorCode::InvalidField, "unknown list_rooms field");
+        }
+        auto tag = required_string(root, "requestTag", 1, 64);
+        if (!tag) return fail(ErrorCode::InvalidField, "invalid list_rooms requestTag");
+        return succeed(ListRoomsRequest{std::move(*tag)});
+    }
+
     const auto decode_room_request = [&](auto make_request) -> DecodeResult {
         if (!only_contains(root, {"v", "type", "requestTag", "roomId"})) {
             return fail(ErrorCode::InvalidField, "unknown room request field");
@@ -563,6 +576,11 @@ DecodeResult decode_client_message(std::string_view text) {
     if (*type == "join_room") {
         return decode_room_request([](std::string tag, std::string room) -> ClientRequest {
             return JoinRoomRequest{std::move(tag), std::move(room)};
+        });
+    }
+    if (*type == "create_room") {
+        return decode_room_request([](std::string tag, std::string room) -> ClientRequest {
+            return CreateRoomRequest{std::move(tag), std::move(room)};
         });
     }
     if (*type == "leave_room") {
@@ -650,6 +668,17 @@ Json encode_error(const ProtocolError& value) {
 Json encode_notice(const ServerNotice& value) {
     return Json{{"v", version}, {"type", "server_notice"},
         {"code", value.code}, {"message", value.message}};
+}
+
+Json encode_room_list(std::string_view request_tag, const std::vector<RoomListEntry>& rooms) {
+    auto encoded_rooms = Json::array();
+    for (const auto& room : rooms) {
+        encoded_rooms.push_back(Json{{"roomId", room.room_id},
+            {"players", room.players}, {"connected", room.connected},
+            {"capacity", 4}, {"playing", room.playing}});
+    }
+    return Json{{"v", version}, {"type", "room_list"},
+        {"requestTag", std::string(request_tag)}, {"rooms", std::move(encoded_rooms)}};
 }
 
 Json encode_table_update(

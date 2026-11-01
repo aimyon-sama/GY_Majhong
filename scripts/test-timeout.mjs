@@ -5,7 +5,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { startServer } from './lib/test-server.mjs';
 
-const roomId = 'room-001';
+const roomId = '100001';
 const executable = process.argv[2];
 let initialHands;
 

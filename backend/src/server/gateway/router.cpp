@@ -61,7 +61,7 @@ void Router::schedule_tick() {
     timer_.async_wait([weak = weak_from_this()](boost::system::error_code ec) {
         const auto self = weak.lock();
         if (ec || !self || !self->running_) return;
-        if (auto* room = self->rooms_.find(Room::id)) {
+        for (auto* room : self->rooms_.active_rooms()) {
             const auto update = room->table().tick();
             // 空闲 tick 不发快照，也不每 25ms 重复广播旧的存储告警。
             if (!update.deliveries.empty() || !update.error.empty()) self->deliver(*room, update);
@@ -113,18 +113,65 @@ void Router::hello(const WsSession::Ptr& connection, const protocol::HelloReques
     }
 }
 
+void Router::send_room_list(const WsSession::Ptr& connection, std::string_view request_tag) {
+    std::vector<protocol::RoomListEntry> entries;
+    for (const auto& room : rooms_.summaries()) {
+        entries.push_back({room.id, room.players, room.connected, room.playing});
+    }
+    send(connection, protocol::encode_room_list(request_tag, entries));
+}
+
+void Router::handle(const WsSession::Ptr& connection, const Session&,
+                    const protocol::ListRoomsRequest& request) {
+    send_room_list(connection, request.request_tag);
+}
+
 void Router::handle(const WsSession::Ptr& connection, const Session& session,
-                    const protocol::JoinRoomRequest& request) {
+                    const protocol::CreateRoomRequest& request) {
+    const auto reject = [&](ErrorCode code) {
+        send(connection, protocol::encode_ack({protocol::LobbyOperation::CreateRoom,
+            request.request_tag, false, code}));
+    };
+    if (session->room_id) return reject(ErrorCode::AlreadyInRoom);
+    if (!RoomManager::valid_id(request.room_id)) return reject(ErrorCode::InvalidRoomId);
+    if (rooms_.find(request.room_id)) return reject(ErrorCode::RoomExists);
+    if (rooms_.size() >= RoomManager::max_rooms) return reject(ErrorCode::RoomLimitReached);
+
     Room* room = nullptr;
     try {
-        room = rooms_.get_or_create(request.room_id);
+        room = rooms_.create(request.room_id);
     } catch (const std::exception&) {
-        return error(connection, ErrorCode::InternalError, request.request_tag);
+        return reject(ErrorCode::InternalError);
     }
-    if (!room) return error(connection, ErrorCode::RoomNotFound, request.request_tag);
+    if (!room) return reject(ErrorCode::InternalError);
+    const auto update = room->join(session);
+    if (!update.accepted) {
+        rooms_.close(request.room_id);
+        return reject(table_error(update.error));
+    }
+    acknowledge(connection, protocol::LobbyOperation::CreateRoom, request.request_tag, update);
+    deliver(*room, update);
+}
+
+void Router::handle(const WsSession::Ptr& connection, const Session& session,
+                    const protocol::JoinRoomRequest& request) {
+    if (!RoomManager::valid_id(request.room_id)) {
+        return error(connection, ErrorCode::InvalidRoomId, request.request_tag);
+    }
+    // 先校验房间绑定，避免被拒绝的跨房间请求重建默认房间并占用额度。
     if (session->room_id && *session->room_id != request.room_id) {
         return error(connection, ErrorCode::AlreadyInRoom, request.request_tag);
     }
+    auto* room = rooms_.find(request.room_id);
+    // 保留旧客户端行为：默认房间关闭后，下一次加入会创建一张全新牌桌。
+    if (!room && request.room_id == RoomManager::default_room_id) {
+        try {
+            room = rooms_.create(request.room_id);
+        } catch (const std::exception&) {
+            return error(connection, ErrorCode::InternalError, request.request_tag);
+        }
+    }
+    if (!room) return error(connection, ErrorCode::RoomNotFound, request.request_tag);
     const auto update = room->join(session);
     acknowledge(connection, protocol::LobbyOperation::JoinRoom, request.request_tag, update);
     deliver(*room, update);
@@ -132,6 +179,9 @@ void Router::handle(const WsSession::Ptr& connection, const Session& session,
 
 void Router::handle(const WsSession::Ptr& connection, const Session& session,
                     const protocol::LeaveRoomRequest& request) {
+    if (!RoomManager::valid_id(request.room_id)) {
+        return error(connection, ErrorCode::InvalidRoomId, request.request_tag);
+    }
     auto* room = rooms_.find(request.room_id);
     if (!room) return error(connection, ErrorCode::RoomNotFound, request.request_tag);
     if (session->room_id && *session->room_id != request.room_id) {
@@ -147,6 +197,10 @@ void Router::handle(const WsSession::Ptr& connection, const Session& session,
 Room* Router::seated_room(const WsSession::Ptr& connection, const Session& session,
                          std::string_view room_id, std::optional<std::string> tag,
                          std::optional<std::uint64_t> request_id) {
+    if (!RoomManager::valid_id(room_id)) {
+        error(connection, ErrorCode::InvalidRoomId, std::move(tag), request_id);
+        return nullptr;
+    }
     if (!session->room_id || !session->player) {
         error(connection, ErrorCode::NotSeated, std::move(tag), request_id);
         return nullptr;
@@ -186,7 +240,7 @@ void Router::handle(const WsSession::Ptr& connection, const Session& session,
     if (!view) return error(connection, ErrorCode::NotSeated, request.request_tag);
     send(connection, protocol::encode_ack(protocol::LobbyAck{
         protocol::LobbyOperation::Snapshot, request.request_tag, true, {}}));
-    send(connection, protocol::encode_table_update(Room::id,
+    send(connection, protocol::encode_table_update(room->id(),
         common::Delivery{session->player->id, *view, {}}, common::TableClock::now()));
 }
 
@@ -208,7 +262,7 @@ void Router::deliver(Room& room, const common::TableUpdate& update) {
     const auto now = common::TableClock::now();
     for (const auto& delivery : update.deliveries) {
         if (auto connection = room.connection_for(delivery.recipient_id)) {
-            send(connection, protocol::encode_table_update(Room::id, delivery, now));
+            send(connection, protocol::encode_table_update(room.id(), delivery, now));
         }
     }
     if (!update.replay_error.empty()) notice(room, {"replay_write_failed", "Replay storage unavailable"});
@@ -223,12 +277,13 @@ void Router::notice(Room& room, const protocol::ServerNotice& value) {
 
 void Router::close_abandoned_room(Room& room) {
     if (!room.abandoned()) return;
+    const auto room_id = room.id();
     const auto members = room.members();
     deliver(room, room.table().close());
     // 主动交给 AI 的连接可能仍然打开，先通知再撤销全部令牌与绑定。
     notice(room, {"room_closed", "All players left; this table is closed"});
     for (const auto& session : members) sessions_.expire(session);
-    rooms_.close(Room::id);
+    rooms_.close(room_id);
 }
 
 void Router::on_close(WsSession::Ptr connection) {

@@ -7,6 +7,7 @@ import { startServer } from './lib/test-server.mjs'
 const server = await startServer(process.argv[2], ['--action-timeout-ms', '15000', '--seed', '42'])
 const clients = []
 const stores = []
+const roomId = '200001'
 async function until(check, description) {
   const deadline = Date.now() + 5000
   while (!check()) {
@@ -40,6 +41,11 @@ async function sync() {
   await until(() => players.every(p => p.state.status === 'online' && !p.state.pending), 'clients synchronized')
   await Promise.all(players.map(barrier))
 }
+async function waitForLobby(client) {
+  await until(() => client.state.status === 'lobby' && !client.state.pending, 'lobby and room list ready')
+  assert.equal(client.state.roomId, null)
+  assert.equal(client.state.view, null)
+}
 
 try {
   const probe = await server.connect()
@@ -51,13 +57,24 @@ try {
     const client = createClient(store)
     players.push(client)
     client.connect(address, `玩家${seat}`)
+    await waitForLobby(client)
+    if (seat === 0) {
+      assert.ok(client.state.rooms.some(room => room.roomId === '100001'))
+      assert.equal(client.create(roomId), true)
+    } else {
+      assert.ok(client.state.rooms.some(room => room.roomId === roomId && room.players === seat))
+      assert.equal(client.join(roomId), true)
+    }
     await until(() => client.state.status === 'online', 'join room')
+    assert.equal(client.state.roomId, roomId)
     assert.equal(client.state.view.selfSeat, seat)
   }
   await sync()
   const fifth = createClient()
   fifth.connect(address, '第五人')
-  await until(() => fifth.state.status === 'lobby', 'full room rejection')
+  await waitForLobby(fifth)
+  assert.equal(fifth.join(roomId), true)
+  await waitForLobby(fifth)
   assert.match(fifth.state.notice, /房间已满/)
 
   for (const client of players) {
@@ -104,11 +121,11 @@ try {
   assert.equal(departed.leave(), true)
   await until(() => departed.state.status === 'away', 'AI takeover after settlement')
   assert.equal(departed.state.view, null)
-  assert.equal(departed.state.roomId, 'room-001')
+  assert.equal(departed.state.roomId, roomId)
   await barrier(players[1])
   assert.equal(players[1].state.view.seats[0].ready, true)
   assert.equal(players[1].state.view.seats[0].occupied, true)
-  assert.equal(fifth.join(), true)
+  assert.equal(fifth.join(roomId), true)
   await until(() => !fifth.state.pending, 'fifth player is still rejected')
   assert.equal(fifth.state.status, 'lobby')
   assert.match(fifth.state.notice, /房间已满/)
@@ -133,7 +150,7 @@ try {
   assert.equal(aiRestored.state.view.selfSeat, 0)
   assert.equal(aiRestored.state.view.roundId, '2')
   assert.ok(aiRestored.state.view.seats[0].connected)
-  console.log('PASS: frontend game, identity recovery, settlement, AI auto-ready, no replacement, refresh recovery and active-round takeover.')
+  console.log('PASS: frontend lobby, room creation and joining, game, identity recovery, settlement, AI auto-ready, no replacement, refresh recovery and active-round takeover.')
 
 } finally {
   for (const client of clients) client.disconnect()
