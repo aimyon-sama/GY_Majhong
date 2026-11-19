@@ -22,6 +22,35 @@ void calculate_delta(gymj::common::PointResult& result){
     }
 }
 
+// 每个小分分类都采用复式记账：一笔转移同时记入支付矩阵和双方的分类明细。
+enum class PointCategory { Chicken, Kan, Agari, Tenpai };
+
+int& category_net(gymj::common::PointDetail& detail, PointCategory category){
+    switch(category){
+        case PointCategory::Chicken:
+            return detail.point_from_chicken;
+        case PointCategory::Kan:
+            return detail.point_from_kan;
+        case PointCategory::Agari:
+            return detail.point_from_agari;
+        case PointCategory::Tenpai:
+            return detail.point_from_tenpai;
+    }
+    return detail.point_from_agari;
+}
+
+// 唯一的记账入口：付款人按分类记负数，收款人记正数，矩阵只在这里写入。
+// 因为每笔转移都双边入账，四人的分类净额之和与 delta 恒为 0。
+void record_payment(gymj::common::PointResult& result, int payer, int receiver,
+                    PointCategory category, int amount){
+    if(amount == 0 || payer < 0 || receiver < 0 || payer == receiver){
+        return;
+    }
+    result.point_to_others[payer][receiver] += amount;
+    category_net(result.detail[payer], category) -= amount;
+    category_net(result.detail[receiver], category) += amount;
+}
+
 }
 
 namespace gymj::rule{
@@ -42,14 +71,11 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
             if(tenpai_seats[i] == 0){
                 for(int j = 0; j < 4; j++){
                     if(tenpai_seats[j] == true){
-                        point_result.point_to_others[i][j] += calculate_tile_point(round_result.states[j], round_result.detail);
+                        record_payment(point_result, i, j, PointCategory::Tenpai,
+                                       calculate_tile_point(round_result.states[j], round_result.detail));
                     }
                 }
             }
-        }
-        calculate_delta(point_result);
-        for(int i = 0; i <4; i++){
-            point_result.detail[i] = gymj::common::PointDetail{point_result.delta_result[i], 0, 0, 0, point_result.delta_result[i]};
         }
     } else {
         // 多响使用完整赢家列表；兼容仍只填写单个 winner_seat 的调用方。
@@ -57,20 +83,19 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
         if(winners.empty()){
             winners.push_back(round_result.winner_seat);
         }
+        auto is_chicken = [](Tile tile) -> bool {
+            return (tile == chicken) || (tile == black_chicken);
+        };
+        auto is_unclaimed_dash_from = [](const std::optional<DashChicken>& dash_chicken, int seat) -> bool {
+            return dash_chicken.has_value()
+                && dash_chicken->discarded_by == seat
+                && dash_chicken->claimed_by < 0;
+        };
         //calculate point of every seat
         for(int i = 0; i < 4; i++){
             if(round_result.discarder_seat == i && round_result.detail == gymj::common::WinDetail::RonKanDiscard){
                 continue;
             }
-
-            auto is_chicken = [](Tile tile) -> bool {
-                return (tile == chicken) || (tile == black_chicken);
-            };
-            auto is_unclaimed_dash_from = [](const std::optional<DashChicken>& dash_chicken, int seat) -> bool {
-                return dash_chicken.has_value()
-                    && dash_chicken->discarded_by == seat
-                    && dash_chicken->claimed_by < 0;
-            };
             if(tenpai_seats[i] == false){
                 // be responsible of chicken
                 int responsible_chicken = 0;
@@ -107,22 +132,19 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
                     if(i == j || tenpai_seats[j] == false) {
                         continue;
                     }
-                    point_result.point_to_others[i][j] += responsible_chicken;
-                    point_result.detail[i].point_from_chicken -= responsible_chicken;
+                    record_payment(point_result, i, j, PointCategory::Chicken, responsible_chicken);
                 }
                 // be responsible of kan
                 for(auto& meld : round_result.states[i].melds){
                     if(meld.type == gymj::common::MeldType::OpenKan){
                         int discarder_seat = meld.from_seat;
-                        point_result.point_to_others[i][discarder_seat] += config_.kan_point;
-                        point_result.detail[i].point_from_kan -= config_.kan_point;
+                        record_payment(point_result, i, discarder_seat, PointCategory::Kan, config_.kan_point);
                     } else if(meld.type == gymj::common::MeldType::AddKan || meld.type == gymj::common::MeldType::SelfKan){
                         for(int j = 0; j < 4; j++){
                             if(i == j || tenpai_seats[j] == false){
                                 continue;
                             }
-                            point_result.point_to_others[i][j] += config_.kan_point;
-                            point_result.detail[i].point_from_kan -= config_.kan_point;
+                            record_payment(point_result, i, j, PointCategory::Kan, config_.kan_point);
                         }
                     }
                 }
@@ -165,22 +187,19 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
                     if(i == j) {
                         continue;
                     }
-                    point_result.point_to_others[j][i] += get_chicken;
-                    point_result.detail[i].point_from_chicken += get_chicken;
+                    record_payment(point_result, j, i, PointCategory::Chicken, get_chicken);
                 }
                 // be responsible of kan
                 for(auto& meld : round_result.states[i].melds){
                     if(meld.type == gymj::common::MeldType::OpenKan){
                         int discarder_seat = meld.from_seat;
-                        point_result.point_to_others[discarder_seat][i] += config_.kan_point;
-                        point_result.detail[i].point_from_kan += config_.kan_point;
+                        record_payment(point_result, discarder_seat, i, PointCategory::Kan, config_.kan_point);
                     } else if(meld.type == gymj::common::MeldType::AddKan || meld.type == gymj::common::MeldType::SelfKan){
                         for(int j = 0; j < 4; j++){
                             if(i == j){
                                 continue;
                             }
-                            point_result.point_to_others[j][i] += config_.kan_point;
-                            point_result.detail[i].point_from_kan += config_.kan_point;
+                            record_payment(point_result, j, i, PointCategory::Kan, config_.kan_point);
                         }
                     }
                 }
@@ -196,9 +215,7 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
                 return;
             }
             const int point = config_.dash_chicken_point - config_.hand_chicken_point;
-            point_result.point_to_others[payer][receiver] += point;
-            point_result.detail[payer].point_from_chicken -= point;
-            point_result.detail[receiver].point_from_chicken += point;
+            record_payment(point_result, payer, receiver, PointCategory::Chicken, point);
         };
         apply_claimed_dash_chicken(round_result.one_sou);
         apply_claimed_dash_chicken(round_result.eight_pin);
@@ -237,27 +254,25 @@ PointResult PointEngine::calculate(const RoundResult& round_result, const Tile r
                 case WinType::Tsumo:
                     for(int i = 0; i < 4; i++){
                         if(i != winner_seat){
-                            point_result.point_to_others[i][winner_seat] += winner_point;
-                            point_result.detail[winner_seat].point_from_agari += winner_point;
+                            record_payment(point_result, i, winner_seat, PointCategory::Agari, winner_point);
                         }
                     }
                     break;
                 case WinType::Ron: {
                     int discarder_seat = round_result.discarder_seat;
-                    point_result.point_to_others[discarder_seat][winner_seat] += winner_point;
-                    point_result.detail[winner_seat].point_from_agari += winner_point;
+                    record_payment(point_result, discarder_seat, winner_seat, PointCategory::Agari, winner_point);
                     break;
                 }
                 default:
                     return PointResult{};
             }
         }
+    }
 
-        //conclusion
-        calculate_delta(point_result);
-        for(int i = 0; i <4; i++){
-            point_result.detail[i].total_point = point_result.delta_result[i];
-        }
+    // 明细与支付矩阵同源：每人净变化由矩阵汇总，再作为小分总额返回。
+    calculate_delta(point_result);
+    for(int i = 0; i < 4; i++){
+        point_result.detail[i].total_point = point_result.delta_result[i];
     }
     return point_result;
 }

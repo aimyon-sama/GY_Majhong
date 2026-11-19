@@ -678,6 +678,36 @@ void test_ron_after_kan_draw_retains_detail(){
     check_conservation(round);
 }
 
+void test_kan_rejects_four_in_hand_tiles_not_just_drawn(){
+    // 规则引擎只把刚摸到的牌当作杠候选；小局必须拒绝其余请求且不修改状态。
+    std::array<std::vector<Tile>, 4> hands{};
+    hands[0] = {
+        p(7), p(7), p(7), p(7),
+        m(1), m(2), m(3),
+        s(1), s(2), s(3),
+        p(1), p(2), p(3),
+    };
+    Round round{config_with_dealer(0)};
+    require(round.start(scripted_wall(hands, {p(8), m(9)})).accepted, "fixture should start");
+    round.draw_for_current_player();
+    const auto before = round.state();
+    const auto rejected = round.submit_action(0, {PlayerActionType::SelfKan, p(7)});
+    require(!rejected.accepted, "resting four-of-a-kind must not be self-kanned");
+    require(rejected.error == "illegal action", "rejected kan should report an illegal action");
+    require(rejected.events.empty(), "rejected kan must not emit events");
+    require(round.state().seq == before.seq && round.state().stage == before.stage,
+            "rejected kan must not advance the round");
+    require(round.state().states[0].hand == before.states[0].hand
+                && round.state().states[0].melds.size() == before.states[0].melds.size(),
+            "rejected kan must not move tiles");
+    // 先保存返回值再遍历：available_actions() 按值返回数组，不能依赖临时对象生命周期。
+    const auto actions = round.available_actions();
+    for(const auto& action : actions[0]){
+        require(action.type != PlayerActionType::SelfKan, "resting four-of-a-kind must not appear as a kan action");
+    }
+    check_conservation(round);
+}
+
 void test_empty_wall_disallows_kan_but_keeps_final_discard(){
     std::array<std::vector<Tile>, 4> hands{};
     hands[3] = {p(9), p(9), p(9)};
@@ -851,6 +881,7 @@ int main(){
         test_later_chicken_discard_does_not_claim_the_first();
         test_self_kan_and_replacement_tsumo_settlement();
         test_add_kan_is_deferred_and_can_be_robbed();
+        test_kan_rejects_four_in_hand_tiles_not_just_drawn();
         test_multi_ron_waits_for_responses_and_obeys_config();
         test_ron_has_priority_over_pon();
         test_simple_tsumo_and_winning_chicken_bonus();

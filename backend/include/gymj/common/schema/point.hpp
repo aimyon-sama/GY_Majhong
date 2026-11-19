@@ -9,12 +9,14 @@
 
 namespace gymj::common{
 
+// 每个分类是该座位的小局净额：收到为正，付出为负。
+// 四人的同一分类之和、以及各座位 total_point 之和都应为 0。
 struct PointDetail{
     int total_point = 0;
     int point_from_chicken = 0;
     int point_from_kan = 0;
     int point_from_agari = 0;
-    int point_from_tenpai = 0; // in no winner round
+    int point_from_tenpai = 0; // 荒牌时的听牌支付
 };
 
 struct PointResult{

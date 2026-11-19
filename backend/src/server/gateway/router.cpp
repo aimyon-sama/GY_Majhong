@@ -40,8 +40,9 @@ void acknowledge(const WsSession::Ptr& connection, protocol::LobbyOperation oper
 }
 } // namespace
 
-Router::Router(boost::asio::io_context& ioc, common::RuleConfig rules, common::TableOptions options)
-    : rooms_(rules, std::move(options)), timer_(ioc) {}
+Router::Router(boost::asio::io_context& ioc, common::RuleConfig rules, common::TableOptions options,
+               SessionManager::Options session_options)
+    : sessions_(session_options), rooms_(rules, std::move(options)), timer_(ioc) {}
 
 void Router::start() {
     if (running_) return;
@@ -61,6 +62,12 @@ void Router::schedule_tick() {
     timer_.async_wait([weak = weak_from_this()](boost::system::error_code ec) {
         const auto self = weak.lock();
         if (ec || !self || !self->running_) return;
+        const auto now = common::TableClock::now();
+        // 每秒回收一次过期大厅身份，而不是在每个 25ms tick 重复扫描整个会话表。
+        if (now >= self->next_session_sweep_) {
+            self->next_session_sweep_ = now + std::chrono::seconds(1);
+            self->sessions_.sweep(now);
+        }
         for (auto* room : self->rooms_.active_rooms()) {
             const auto update = room->table().tick();
             // 空闲 tick 不发快照，也不每 25ms 重复广播旧的存储告警。

@@ -271,6 +271,66 @@ void test_resolve_claims_picks_nearest_non_win_claim(){
     require(result_from_seat_2[0].first == 3, "nearest non-win claimant after seat 2 should win");
 }
 
+void test_kans_only_consider_the_just_drawn_tile(){
+    // 当前规则把杠限制在 draw_buffer 上：能杠的只有本巡刚摸到的那张牌。
+    // 这里固定三个易混淆场景，避免以后改动时不小心放宽或收紧规则。
+    const auto engine = make_engine();
+
+    // 1) 手里已有四张 7p，但本巡摸到别的牌：不提供暗杠。
+    RoundState four_in_hand{};
+    four_in_hand.stage = RoundStage::WaitingDiscard;
+    four_in_hand.acting_player = 0;
+    four_in_hand.discard_detail = DiscardDetail::SimpleDraw;
+    four_in_hand.states[0].hand = {
+        p(7), p(7), p(7), p(7),
+        m(1), m(2), m(3),
+        s(1), s(2), s(3),
+        m(6), m(7), p(8),
+    };
+    four_in_hand.states[0].draw_buffer = p(8);
+    const auto four_in_hand_actions = engine.get_available_actions(four_in_hand);
+    require(!has_action(four_in_hand_actions[0], PlayerActionType::SelfKan, p(7)),
+            "未摸到的四张同牌不应提供暗杠");
+    require(count_action_type(four_in_hand_actions[0], PlayerActionType::SelfKan) == 0,
+            "摸到无关牌时不应提供任何暗杠");
+
+    // 2) 已有碰，第四张在手里，但本巡摸到别的牌：不提供加杠。
+    RoundState add_kan_in_hand{};
+    add_kan_in_hand.stage = RoundStage::WaitingDiscard;
+    add_kan_in_hand.acting_player = 1;
+    add_kan_in_hand.discard_detail = DiscardDetail::SimpleDraw;
+    add_kan_in_hand.states[1].hand = {
+        p(5), m(1), m(2),
+        s(1), s(2), s(3),
+        p(1), p(2), p(3), m(7), m(8),
+    };
+    add_kan_in_hand.states[1].melds.push_back(Meld{MeldType::Pon, p(5), 2});
+    add_kan_in_hand.states[1].draw_buffer = m(1);
+    const auto add_kan_in_hand_actions = engine.get_available_actions(add_kan_in_hand);
+    require(!has_action(add_kan_in_hand_actions[1], PlayerActionType::AddKan, p(5)),
+            "手持加杠牌但未摸到它时不应提供加杠");
+
+    // 3) 同时存在多个杠候选时，只提供本巡摸到的那一种。
+    RoundState multiple_candidates{};
+    multiple_candidates.stage = RoundStage::WaitingDiscard;
+    multiple_candidates.acting_player = 0;
+    multiple_candidates.discard_detail = DiscardDetail::SimpleDraw;
+    multiple_candidates.states[0].hand = {
+        p(7), p(7), p(7), p(7),
+        s(3), s(3), s(3), s(3),
+        m(1), m(2), m(3),
+        p(1), p(2), p(3),
+    };
+    multiple_candidates.states[0].draw_buffer = s(3);
+    const auto multiple_actions = engine.get_available_actions(multiple_candidates);
+    require(has_action(multiple_actions[0], PlayerActionType::SelfKan, s(3)),
+            "本巡摸到的第四张应提供暗杠");
+    require(!has_action(multiple_actions[0], PlayerActionType::SelfKan, p(7)),
+            "其他三张同牌不应同时提供暗杠");
+    require(count_action_type(multiple_actions[0], PlayerActionType::SelfKan) == 1,
+            "多个杠候选时只提供刚摸到的那一张");
+}
+
 void test_calculate_points_derives_tenpai_from_round_result(){
     auto engine = make_engine();
     RoundResult round{};
@@ -323,6 +383,7 @@ int main(){
         test_inactive_stages_offer_no_actions();
         test_waiting_discard_after_draw_uses_draw_buffer();
         test_waiting_discard_after_draw_detects_kans_from_draw_buffer();
+        test_kans_only_consider_the_just_drawn_tile();
         test_waiting_discard_after_pon_only_allows_discards();
         test_waiting_claim_offers_pon_open_kan_ron_and_pass();
         test_add_kan_claim_only_allows_ron_and_pass();

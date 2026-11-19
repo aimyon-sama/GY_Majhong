@@ -8,6 +8,7 @@ const errors = {
   invalid_room_id: '房间号必须是 1 至 32 位数字。',
   room_exists: '该房间已经存在，请直接加入。',
   room_limit_reached: '服务器房间数已达上限，请加入现有房间。',
+  rate_limited: '服务器临时身份或连接数已达上限，请稍后重试。',
   already_in_room: '当前身份已经绑定到一个房间。',
   session_expired: '原身份已失效，请重新进入房间。',
   invalid_session: '保存的身份无效，请重新进入房间。',

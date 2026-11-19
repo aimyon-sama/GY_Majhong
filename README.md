@@ -156,7 +156,8 @@ Submit an action advertised by the authoritative snapshot:
 }
 ```
 
-See [protocol v1](protocol/v1.md) for complete message shapes, ordering rules, and error codes.
+See [protocol v1](protocol/v1.md) for complete message shapes, ordering rules, and error codes,
+and the [rules reference](docs/rules.md) for the current scoring and kan rules.
 
 ## Replay Format
 
@@ -221,7 +222,7 @@ npm run build
 Pop-Location
 ```
 
-Backend coverage includes rules, scoring, wall, round, table, protocol, and sessions. CTest also launches a real server to test transport, full games, timeout AI, room closure, and two-room isolation. Frontend tests cover identity recovery, request synchronization, duplicate-click protection, the room lobby, and error recovery.
+Backend coverage includes rules, scoring, wall, round, table, protocol, and sessions. CTest also launches a real server to test transport, full games, timeout AI, room closure, two-room isolation, and lobby session reclamation. Frontend tests cover identity recovery, request synchronization, duplicate-click protection, the room lobby, and error recovery.
 
 On other platforms, configure `backend/` explicitly with a modern C++20 compiler. GCC 8 is not supported.
 
@@ -231,6 +232,7 @@ On other platforms, configure `backend/` explicitly with a modern C++20 compiler
 - The default room is `100001`. A legacy join recreates a fresh table at that ID after the previous one closes.
 - One temporary identity can bind to only one room. While another human remains, disconnecting or leaving hands the seat to AI and does not make it available to replacements.
 - A player can restore the seat with the temporary token while the room exists. Once the last human leaves, the room closes and all of its old tokens expire.
+- Unseated identities left offline longer than the lobby TTL (120 seconds by default, `--lobby-session-ttl-seconds`) are reclaimed. Session and authenticated-connection counts are capped; exceeding them returns `rate_limited`.
 - Identities live only in server memory and disappear on restart. The browser stores tokens in `sessionStorage`, scoped by server address.
 
 ## Roadmap

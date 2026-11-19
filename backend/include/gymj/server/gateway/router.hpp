@@ -3,6 +3,7 @@
 
 #include <gymj/server/lobby/room_manager.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <chrono>
 #include <memory>
 
 namespace gymj::server::gateway {
@@ -12,12 +13,16 @@ namespace gymj::server::gateway {
 class Router : public std::enable_shared_from_this<Router> {
 public:
     explicit Router(boost::asio::io_context& ioc, common::RuleConfig rules = {},
-                    common::TableOptions options = {});
+                    common::TableOptions options = {},
+                    SessionManager::Options session_options = {});
     // 在 shared_ptr 建立后启动；停止后取消待处理的计时回调。
     void start();
     void stop();
     void on_message(WsSession::Ptr connection, std::string text);
     void on_close(WsSession::Ptr connection);
+    // 仅用于诊断和测试：进程内的临时身份与连接数量。
+    std::size_t session_count() const noexcept { return sessions_.session_count(); }
+    std::size_t connection_count() const noexcept { return sessions_.connection_count(); }
 
 private:
     void schedule_tick();
@@ -41,6 +46,7 @@ private:
     SessionManager sessions_;
     RoomManager rooms_;
     boost::asio::steady_timer timer_;
+    common::TableClock::time_point next_session_sweep_{};
     bool running_ = false;
 };
 } // namespace gymj::server::gateway

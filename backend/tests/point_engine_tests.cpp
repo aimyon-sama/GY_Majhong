@@ -232,6 +232,63 @@ void expect_delta(const PointResult& result, std::array<int, 4> expected, const 
     }
 }
 
+std::string seat_detail_text(const PointResult& result, int seat){
+    const auto& detail = result.detail[seat];
+    return "seat " + std::to_string(seat)
+        + " total=" + std::to_string(detail.total_point)
+        + " chicken=" + std::to_string(detail.point_from_chicken)
+        + " kan=" + std::to_string(detail.point_from_kan)
+        + " agari=" + std::to_string(detail.point_from_agari)
+        + " tenpai=" + std::to_string(detail.point_from_tenpai)
+        + " delta=" + std::to_string(result.delta_result[seat]);
+}
+
+// 对账口径：每人分类之和等于 total，也等于 delta 和支付矩阵净额；
+// 全桌每个分类的四人净额之和、以及四个 delta 之和都必须为 0。
+void expect_balanced(const PointResult& result, const std::string& name){
+    int round_total = 0;
+    for(int seat = 0; seat < 4; ++seat){
+        const auto& detail = result.detail[seat];
+        const int sum = detail.point_from_chicken + detail.point_from_kan
+            + detail.point_from_agari + detail.point_from_tenpai;
+        require(sum == detail.total_point,
+                name + " categories must add up to total: " + seat_detail_text(result, seat));
+        require(detail.total_point == result.delta_result[seat],
+                name + " total must equal delta: " + seat_detail_text(result, seat));
+        int paid = 0, received = 0;
+        for(int other = 0; other < 4; ++other){
+            paid += result.point_to_others[seat][other];
+            received += result.point_to_others[other][seat];
+        }
+        require(received - paid == result.delta_result[seat],
+                name + " matrix net must equal delta: " + seat_detail_text(result, seat));
+        round_total += result.delta_result[seat];
+    }
+    require(round_total == 0, name + " deltas must sum to zero");
+    const std::array<std::string, 4> category_names{"chicken", "kan", "agari", "tenpai"};
+    for(std::size_t category = 0; category < category_names.size(); ++category){
+        int net = 0;
+        for(int seat = 0; seat < 4; ++seat){
+            const auto& detail = result.detail[seat];
+            switch(category){
+                case 0: net += detail.point_from_chicken; break;
+                case 1: net += detail.point_from_kan; break;
+                case 2: net += detail.point_from_agari; break;
+                default: net += detail.point_from_tenpai; break;
+            }
+        }
+        require(net == 0, name + " category " + category_names[category] + " must sum to zero");
+    }
+}
+
+void expect_detail(const PointResult& result, int seat, int chicken, int kan, int agari,
+                   const std::string& name){
+    require(result.detail[seat].point_from_chicken == chicken
+            && result.detail[seat].point_from_kan == kan
+            && result.detail[seat].point_from_agari == agari,
+            name + " unexpected detail: " + seat_detail_text(result, seat));
+}
+
 void test_no_winner_tenpai_payment(){
     auto engine = make_engine();
     RoundResult round{};
@@ -251,6 +308,7 @@ void test_no_winner_tenpai_payment(){
     require(result.point_to_others[2][1] == 3, "seat 2 should pay seat 1 tenpai value");
     require(result.detail[0].point_from_tenpai == 6, "seat 0 tenpai detail should match delta");
     require(result.detail[2].point_from_tenpai == -6, "seat 2 tenpai detail should match delta");
+    expect_balanced(result, "no_winner_tenpai_payment");
     print_result("no_winner_tenpai_payment", result);
 }
 
@@ -266,6 +324,8 @@ void test_simple_ron(){
     expect_delta(result, {11, -11, 0, 0}, "simple_ron");
     require(result.point_to_others[1][0] == 11, "discarder should pay winner including no-chicken-no-kan bonus");
     require(result.detail[0].point_from_agari == 11, "winner agari detail should include no-chicken-no-kan bonus");
+    expect_detail(result, 1, 0, 0, -11, "simple_ron");
+    expect_balanced(result, "simple_ron");
     print_result("simple_ron", result);
 }
 
@@ -280,6 +340,10 @@ void test_simple_tsumo(){
 
     expect_delta(result, {33, -11, -11, -11}, "simple_tsumo");
     require(result.detail[0].point_from_agari == 33, "winner agari detail should collect three payments including no-chicken-no-kan bonus");
+    for(const int payer : {1, 2, 3}){
+        expect_detail(result, payer, 0, 0, -11, "simple_tsumo");
+    }
+    expect_balanced(result, "simple_tsumo");
     print_result("simple_tsumo", result);
 }
 
@@ -294,6 +358,10 @@ void test_kan_detail_tsumo_bonus(){
 
     expect_delta(result, {51, -17, -17, -17}, "kan_detail_tsumo_bonus");
     require(result.detail[0].point_from_agari == 51, "kan detail tsumo should use boosted winner value");
+    for(const int payer : {1, 2, 3}){
+        expect_detail(result, payer, 0, 0, -17, "kan_detail_tsumo_bonus");
+    }
+    expect_balanced(result, "kan_detail_tsumo_bonus");
     print_result("kan_detail_tsumo_bonus", result);
 }
 
@@ -313,6 +381,8 @@ void test_claimed_dash_chicken(){
     expect_delta(result, {11, -5, 8, -14}, "claimed_dash_chicken");
     require(result.point_to_others[1][0] == 5, "discarder of first 1s should pay pon claimer extra dash chicken");
     require(result.detail[0].point_from_chicken == 11, "claimer chicken detail should include meld chicken and dash bonus");
+    expect_detail(result, 1, -5, 0, 0, "claimed_dash_chicken");
+    expect_balanced(result, "claimed_dash_chicken");
 }
 
 void test_kan_payments(){
@@ -332,6 +402,10 @@ void test_kan_payments(){
     require(result.point_to_others[2][0] == 10 && result.point_to_others[3][0] == 10,
             "non-source seats should pay only for added and concealed kans");
     require(result.detail[0].point_from_kan == 35, "open kan receives one payment, other kans receive three");
+    expect_detail(result, 1, 0, -15, 0, "kan_payments");
+    expect_detail(result, 2, 0, -10, 11, "kan_payments");
+    expect_detail(result, 3, 0, -10, -11, "kan_payments");
+    expect_balanced(result, "kan_payments");
     print_result("kan_payments", result);
 }
 
@@ -342,8 +416,10 @@ void test_multi_ron_does_not_repeat_shared_payments(){
     round.states[0].melds.push_back(Meld{MeldType::SelfKan, m(9), 0});
     const std::array<bool, 4> tenpai{true, true, true, true};
     const auto single = engine.calculate(round, p(9), tenpai);
+    expect_balanced(single, "multi_ron_single");
     round.winner_seats = {1, 2};
     const auto multi = engine.calculate(round, p(9), tenpai);
+    expect_balanced(multi, "multi_ron_shared_payments");
     for(int payer = 0; payer < 4; ++payer){
         require(multi.detail[payer].point_from_chicken == single.detail[payer].point_from_chicken,
                 "multi ron must not repeat chicken payments");
@@ -372,6 +448,7 @@ void test_tenpai_nonwinner_collects_chicken_from_every_opponent(){
             }
             require(result.detail[1].point_from_chicken == 3 * config.hand_chicken_point,
                     "tenpai nonwinner should receive three chicken payments");
+            expect_balanced(result, "tenpai_nonwinner_chicken");
         }
     }
     auto round = base_winning_round(WinType::Ron, 0, 3);
@@ -379,6 +456,7 @@ void test_tenpai_nonwinner_collects_chicken_from_every_opponent(){
     const auto overlap = engine.calculate(round, s(1), {true, true, false, false});
     require(overlap.point_to_others[0][1] == config.hand_chicken_point,
             "a fixed chicken that is also the round chicken must not be counted twice");
+    expect_balanced(overlap, "tenpai_nonwinner_chicken_overlap");
 }
 
 void test_multi_ron_scores_each_winners_shape(){
@@ -398,6 +476,7 @@ void test_multi_ron_scores_each_winners_shape(){
                 "third player should receive agari only when included among winners");
         expect_delta(result, triple ? std::array<int, 4>{-57, 41, 10, 6} : std::array<int, 4>{-54, 41, 10, 3},
                      "multi_ron_individual_shapes");
+        expect_balanced(result, triple ? "multi_ron_triple_shapes" : "multi_ron_double_shapes");
     }
 }
 
@@ -417,12 +496,14 @@ void test_multi_ron_counts_winning_chicken_for_each_winner(){
         round.states[2].hand = round.states[1].hand;
         const auto result = engine.calculate(round, s(6), {true, true, true, true});
         for(const int winner : round.winner_seats){
-            require(result.detail[winner].point_from_chicken == 3,
-                    "each winner must count the separately stored winning chicken exactly once per opponent");
+            // 每位赢家从三个对手各收一分胡牌鸡，同时向另一位赢家的胡牌鸡付出一分。
+            require(result.detail[winner].point_from_chicken == 2,
+                    "winning chicken must be netted for every winner");
             require(result.detail[winner].point_from_agari == 3,
                     "a winning chicken must exclude the no-chicken bonus for every winner");
         }
         expect_delta(result, {-8, 5, 5, -2}, "multi_ron_winning_chicken");
+        expect_balanced(result, "multi_ron_winning_chicken");
     }
 }
 
@@ -441,6 +522,14 @@ void test_tenpai_nonwinner_collects_kan_payments_by_type(){
         }
         require(result.detail[1].point_from_kan == (type == MeldType::OpenKan ? 1 : 3) * config.kan_point,
                 "kan income should reflect the number of liable opponents");
+        for(const int payer : {0, 2, 3}){
+            // 付款方必须记下同一笔杠分，否则明细之和无法与总分对上。
+            require(result.detail[payer].point_from_kan
+                        == -result.point_to_others[payer][1]
+                        && result.detail[payer].point_from_kan <= 0,
+                    "kan payer detail must record the negative transfer");
+        }
+        expect_balanced(result, "tenpai_nonwinner_kan");
     }
 }
 
@@ -475,6 +564,8 @@ void test_draw_ignores_chicken_and_kan_payments(){
                 && after.detail[seat].total_point == after.detail[seat].point_from_tenpai,
                 "draw total should consist entirely of hand-shape payments");
     }
+    expect_balanced(before, "draw_ignores_chicken_and_kan_before");
+    expect_balanced(after, "draw_ignores_chicken_and_kan");
 }
 
 }

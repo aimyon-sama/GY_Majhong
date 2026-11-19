@@ -79,6 +79,12 @@ flowchart TD
 2. 旧连接剩余消息不能再控制座位，旧关闭回调也不能把新连接标记离线。
 3. 恢复时先发 `welcome`，再通过原身份入座并发送快照；请求水位和操作期限不重置。
 4. 若旧连接仍在写快照，等待当前写操作完成后发送关闭帧。
+5. 未入座且已断线的身份只保留一段可配置的大厅 TTL（默认 120 秒），用于覆盖页面刷新；
+   `SessionManager::authenticate()` 在恢复令牌时直接检查 TTL，`Router` 每秒调用一次
+   `SessionManager::sweep()` 释放超时身份。认证入口负责严格有效期，定期清理只负责回收资源。
+   已入座身份属于房间生命周期，不按大厅 TTL 回收。
+6. 进程内临时身份与已认证连接都有上限（默认 4096 / 2048），达到上限时 `hello` 返回
+   `rate_limited`；新身份创建前会先回收过期大厅身份，避免正常玩家被遗留会话挤掉。
 
 `send_text` 队列溢出可能同步触发关闭回调，因此 `main()` 用 `asio::post` 延后处理
 断线。否则断线会重入业务层，把较新的断线快照插入较旧的出牌快照之间。
@@ -95,11 +101,12 @@ ctest --preset windows-msvc-debug
 Pop-Location
 ```
 
-CMake 检测到 Node.js 22+ 时自动注册六组真实 WebSocket 测试，不需要安装 npm 包。
+CMake 检测到 Node.js 22+ 时自动注册七组真实 WebSocket 测试，不需要安装 npm 包。
 没有合适的 Node 时，配置输出会说明跳过网络测试，C++ 测试仍可运行。
 
 - `gymj_session_manager_tests`：同名身份隔离、令牌形状、重复认证、当前连接归属、
-  旧关闭回调迟到和离线身份恢复。
+  旧关闭回调迟到、离线身份恢复、认证入口的 TTL 到期边界（不依赖 sweep）、大厅 TTL 回收
+  和身份/连接数量上限。
 - `gymj_table_tests`：增加不带牌面的过、荣和、自摸，以及窗口结束后的精确重试。
 - `gymj_web_transport_tests`：v1 ping、坏输入、二进制消息、发送顺序和超大消息隔离。
 - `gymj_web_game_tests`：四人入座准备、第五人满房、私有快照、合法出牌、重复与过期
@@ -108,6 +115,8 @@ CMake 检测到 Node.js 22+ 时自动注册六组真实 WebSocket 测试，不�
   以及全程无人操作的自动过牌、流局结算、私有快照和牌谱连续性；空闲和结算后不重复广播或落盘。
 - `gymj_web_frontend_tests`：使用正式前端 `GameClient` 验证大厅列表、创建及加入非默认房间、
   满房拒绝、完整对局、身份恢复和 AI 交接；随上述 CTest 命令一起运行。
+- `gymj_web_session_ttl_tests`：以 1 秒 TTL 启动真实服务端，验证 TTL 内恢复、超时后
+  `session_expired`、身份数量上限 `rate_limited` 以及周期回收后名额恢复。
 
 也可直接运行：
 
@@ -145,6 +154,13 @@ backend/out/build/windows-msvc-debug/app/Debug/gymj_server.exe 8080 --action-tim
 参数 `--seed N` 固定牌桌随机种子，供本地复现和自动化测试使用；每局再由牌桌随机序列
 派生自己的洗牌种子。常规运行省略此参数。超时测试使用 1500 毫秒检查重连，使用
 100 毫秒完成整局无人操作验收，无需等待默认期限下的完整牌局。
+
+大厅身份与连接上限同样可以在启动时调整：
+
+```powershell
+backend/out/build/windows-msvc-debug/app/Debug/gymj_server.exe 8080 `
+    --lobby-session-ttl-seconds 120 --max-lobby-sessions 4096 --max-connections 2048
+```
 
 ## 7. 本阶段边界
 

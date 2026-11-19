@@ -3,8 +3,10 @@
 #include <gymj/server/gateway/listener.hpp>
 #include <gymj/server/gateway/router.hpp>
 #include <gymj/server/gateway/ws_session.hpp>
+#include <gymj/server/session/session_manager.hpp>
 
 #include <charconv>
+#include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <iostream>
@@ -48,6 +50,7 @@ int main(int argc, char* argv[]) {
     try {
         std::uint16_t port = 8080;
         gymj::common::TableOptions options;
+        gymj::server::SessionManager::Options session_options;
         int index = 1;
         if (index < argc && !std::string_view(argv[index]).starts_with("--")) port = parse_port(argv[index++]);
         for (; index < argc; ++index) {
@@ -59,12 +62,24 @@ int main(int argc, char* argv[]) {
                 if (options.action_timeout_ms <= 0) throw std::invalid_argument("Action timeout must be positive");
             } else if (flag == "--seed") {
                 options.seed = parse_number<std::uint64_t>(value, "Invalid seed");
+            } else if (flag == "--lobby-session-ttl-seconds") {
+                const auto seconds = parse_number<long long>(value, "Invalid lobby session TTL");
+                if (seconds <= 0) throw std::invalid_argument("Lobby session TTL must be positive");
+                session_options.lobby_ttl = std::chrono::seconds(seconds);
+            } else if (flag == "--max-lobby-sessions") {
+                session_options.max_sessions = parse_number<std::size_t>(value, "Invalid lobby session limit");
+                if (session_options.max_sessions == 0) throw std::invalid_argument("Lobby session limit must be positive");
+            } else if (flag == "--max-connections") {
+                session_options.max_connections = parse_number<std::size_t>(value, "Invalid connection limit");
+                if (session_options.max_connections == 0) throw std::invalid_argument("Connection limit must be positive");
             } else {
-                throw std::invalid_argument("Usage: gymj_server [port] [--action-timeout-ms N] [--seed N]");
+                throw std::invalid_argument(
+                    "Usage: gymj_server [port] [--action-timeout-ms N] [--seed N]"
+                    " [--lobby-session-ttl-seconds N] [--max-lobby-sessions N] [--max-connections N]");
             }
         }
         net::io_context ioc{1};
-        auto router = std::make_shared<Router>(ioc, gymj::common::RuleConfig{}, options);
+        auto router = std::make_shared<Router>(ioc, gymj::common::RuleConfig{}, options, session_options);
         net::signal_set signals(ioc, SIGINT, SIGTERM);
         signals.async_wait([&ioc, router](beast::error_code ec, int) {
             if (!ec) {

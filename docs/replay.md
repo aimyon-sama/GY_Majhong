@@ -153,6 +153,11 @@ A non-null `point_result` contains:
 - `detail`: four objects with `total_point`, `point_from_chicken`,
   `point_from_kan`, `point_from_agari`, and `point_from_tenpai`.
 
+Each `detail` category is a net amount for that seat: receipts are positive and
+payments are negative. A reconcilable settlement satisfies
+`chicken + kan + agari + tenpai == total_point == delta_result[seat]`, and every
+category sums to zero across the four seats.
+
 For a valid settlement, the sum of `delta_result` is zero and `total_points`
 equals the previous cumulative total plus this delta.
 
