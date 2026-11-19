@@ -160,6 +160,7 @@ TableUpdate Table::publish() const {
 }
 
 TableUpdate Table::join(PlayerInfo player) {
+    if (closed_) return reject("table closed");
     const int existing = find_seat(player);
     if (existing >= 0) {
         // 重连复用原有身份和座位，不重置局内操作窗口。
@@ -188,7 +189,12 @@ TableUpdate Table::join(PlayerInfo player) {
     return reject("table is full");
 }
 
+TableUpdate Table::leave(PlayerInfo player) {
+    return disconnect(player);
+}
+
 TableUpdate Table::ready(PlayerInfo player) {
+    if (closed_) return reject("table closed");
     const int seat = find_seat(player);
     if (seat < 0) return reject("player not seated");
     if (!seats_[seat].connected) return reject("player disconnected");
@@ -207,12 +213,16 @@ TableUpdate Table::start(const std::array<Tile, Wall::tile_count>& tiles, TimePo
 }
 
 TableUpdate Table::start_impl(TimePoint now, const std::array<Tile, Wall::tile_count>* tiles) {
-    // 全员在线且准备后才允许开局，进行中的小局不能被替换。
+    if (closed_) return reject("table closed");
+    // 四个座位都准备后允许开局；离线座位由 AI 代表，进行中的小局不能被替换。
     if (stage_ == TableStage::Playing) return reject("round in progress");
+    if (std::none_of(seats_.begin(), seats_.end(), [](const auto& seat) {
+        return seat.is_seated && seat.connected;
+    })) return reject("at least one connected player required");
     std::array<PlayerInfo, 4> players;
     for (int seat = 0; seat < 4; ++seat) {
-        if (!seats_[seat].is_seated || !seats_[seat].connected || !seats_[seat].is_ready) {
-            return reject("four connected ready players required");
+        if (!seats_[seat].is_seated || !seats_[seat].is_ready) {
+            return reject("four ready players required");
         }
         players[seat] = seats_[seat].player;
     }
@@ -248,12 +258,13 @@ TableUpdate Table::start_impl(TimePoint now, const std::array<Tile, Wall::tile_c
 }
 
 TableUpdate Table::disconnect(PlayerInfo player) {
-    // 断线仅更新连接和准备状态，局内座位保留，超时仍由 tick 处理。
+    if (closed_) return reject("table closed");
+    // 离开即由 AI 接管：保留座位、分数及期限，局外自动准备。
     const int seat = find_seat(player);
     if (seat < 0) return reject("player not seated");
     if (seats_[seat].connected) {
         seats_[seat].connected = false;
-        seats_[seat].is_ready = false;
+        seats_[seat].is_ready = stage_ != TableStage::Playing;
         ++table_seq_;
     }
     return publish();
@@ -269,6 +280,7 @@ TableUpdate Table::submit(PlayerInfo player, Command command, TimePoint now) {
         out.request_id = command.request_id;
         return out;
     };
+    if (closed_) return fail("table closed");
     const int seat = find_seat(player);
     if (seat < 0) return fail("player not seated");
     auto& owner = seats_[seat];
@@ -297,7 +309,18 @@ TableUpdate Table::submit(PlayerInfo player, Command command, TimePoint now) {
     else if (command.prompt_id != prompt_id_ || !deadlines_[seat]) out = fail("invalid action prompt");
     else if (now_ >= *deadlines_[seat]) out = fail("action deadline expired");
     else {
-        out = consume(round_->submit_action(seat, command.action));
+        auto action = command.action;
+        // 协议的过/和牌不携带目标牌，由当前合法动作恢复核心需要的牌面。
+        // 只修改执行副本：回执仍缓存原始 Command，窗口结束后重发也能精确去重。
+        if (action.action_tile == null_tile
+            && (action.type == PlayerActionType::Pass || action.type == PlayerActionType::Ron
+                || action.type == PlayerActionType::Tsumo)) {
+            const auto available = round_->available_actions();
+            const auto allowed = std::find_if(available[seat].begin(), available[seat].end(),
+                [&](const PlayerAction& candidate) { return candidate.type == action.type; });
+            if (allowed != available[seat].end()) action = *allowed;
+        }
+        out = consume(round_->submit_action(seat, action));
         if (out.accepted) append_update(out, advance());
     }
     out.request_id = command.request_id;
@@ -334,6 +357,8 @@ TableUpdate Table::consume(RoundTransition transition) {
     if (settled) {
         for (int seat = 0; seat < 4; ++seat) total_points_[seat] += transition.point_result->delta_result[seat];
         stage_ = TableStage::RoundFinished;
+        // AI 与玩家一样参与下一局，无需离线客户端发送 ready。
+        for (auto& seat : seats_) seat.is_ready = seat.is_seated && !seat.connected;
     }
     // Persist full events once, before per-player filtering removes hidden tiles.
     replay_->record(round_id_, table_seq_, transition, total_points_);
@@ -366,6 +391,20 @@ TableUpdate Table::advance() {
     return out;
 }
 
+TableUpdate Table::close() {
+    if (!closed_) {
+        closed_ = true;
+        deadlines_ = {};
+        ++table_seq_;
+        replay_->close(table_seq_, total_points_);
+    }
+    TableUpdate out;
+    out.accepted = true;
+    out.table_seq = table_seq_;
+    out.replay_error = replay_->error();
+    return out;
+}
+
 TableUpdate Table::tick() { return tick(Clock::now()); }
 TableUpdate Table::tick(TimePoint now) {
     now_ = std::max(now_, now);
@@ -373,6 +412,7 @@ TableUpdate Table::tick(TimePoint now) {
     out.accepted = true;
     out.table_seq = table_seq_;
     out.replay_error = replay_->error();
+    if (closed_) return out;
     // 固定进入 tick 时的窗口；旧窗口结束后，不能继续超时处理新窗口的玩家。
     const auto prompt = prompt_id_;
     const auto expired = deadlines_;
@@ -393,6 +433,7 @@ TableUpdate Table::tick(TimePoint now) {
 }
 
 std::optional<PlayerView> Table::snapshot(PlayerInfo player) const {
+    if (closed_) return std::nullopt;
     const int seat = find_seat(player);
     if (seat < 0) return std::nullopt;
     return view_for(seat);

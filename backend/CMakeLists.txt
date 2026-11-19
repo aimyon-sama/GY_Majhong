@@ -15,6 +15,7 @@ option(GYMJ_BUILD_TESTS "Build backend tests" ON)
 
 add_subdirectory(include/third_party)
 add_subdirectory(src)
+add_subdirectory(app)
 
 if(GYMJ_BUILD_TESTS)
     enable_testing()

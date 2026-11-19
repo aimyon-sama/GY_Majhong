@@ -1,4 +1,4 @@
-add_library(gymj_storage_replay STATIC heplay.cpp)
+add_library(gymj_storage_replay STATIC replay.cpp)
 add_library(gymj::storage_replay ALIAS gymj_storage_replay)
 target_link_libraries(gymj_storage_replay
     PUBLIC gymj::common
